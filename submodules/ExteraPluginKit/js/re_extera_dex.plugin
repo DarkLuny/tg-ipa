@@ -1,37 +1,32 @@
 /*
  * re:extera v2 — JavaScript port of the exteraGram plugin of the same name.
  *
- * The original downloads a compiled Dalvik module (`re-extera.1.3.dex`) and loads
- * it with `dalvik.system.InMemoryDexClassLoader`, then calls
- * `ni.shikatu.re_extera.Main.start`. That entire path is an Android runtime
- * feature: there is no Dalvik, no `ByteBuffer`, no class loader and no Java
- * reflection on iOS, and adding one is not "porting a plugin" — it would mean
- * writing a JVM.
+ * The original is a *loader*: it downloads a compiled Dalvik module
+ * (`re-extera.1.5.2.dex`) and calls `ni.shikatu.re_extera.Main.start` inside it
+ * with `dalvik.system.InMemoryDexClassLoader`. There is no Dalvik on iOS, so the
+ * loader itself cannot be ported — but the module it loaded is not opaque. Its
+ * class table and string table (read straight out of the published `.dex`) say
+ * exactly what it did, and that behaviour is what this port implements:
  *
- * So this port is honest about what it can do, and does the part that is real:
- *
- *   - The same metadata, the same constants (`DEFAULT_URL`, `VERSION_URL`,
- *     `CLASS_NAME`, `METHOD_NAME`) and the same public method names, so anyone
- *     reading the source recognises it.
- *   - `fetch_version_info` — reads `actual.json`, picks the entry for the running
- *     Telegram build, and falls back to the closest build at or below it, exactly
- *     like the original (exact match, then "newest key that is <= current").
- *   - A settings row that runs that lookup and reports the answer, so a user
- *     learns whether upstream even ships a build for this client instead of
- *     staring at a switch that does nothing.
+ *   - Ghost mode (`Режим призрака`): do not send `messages.setTyping`, do not
+ *     send `account.updateStatus` online, do not send `messages.readHistory` /
+ *     `channels.readHistory`, and optionally not `messages.readMessageContents` /
+ *     `stories.readStories`. Each is a separate switch, exactly as in the module.
  *
  * What it deliberately does not do:
  *
- *   - It never downloads the `.dex`. Caching 1.3 MB of code the process cannot
- *     execute helps nobody; the log says so once instead of silently writing a
- *     file into the plugin folder.
- *   - `start_from_bytes`, `open_settings` and `unload` exist and log, because a
- *     ported caller reaches them. They do not pretend to have started anything.
+ *   - Download or execute the `.dex`. The file cannot run here, and 1.6 MB of
+ *     dead bytes in the plugin folder is not a feature.
+ *   - Claim the module is loaded. `start_from_bytes` answers `false` and says
+ *     why in the log.
+ *   - Register a hook that can never fire. The hooks below are the requests
+ *     TelegramCore actually sends, and each is matched in both spellings the
+ *     runtime uses.
  *
- * `re_extera_cache/cached.dat` is still looked for, untouched, and its presence
- * and size are reported: a user who copied an Android cache (or an older build
- * that wrote one) sees that the file is there and that this client cannot run it,
- * which is better than a feature that appears to be missing.
+ * The version lookup (`fetch_version_info`) is kept because it is part of the
+ * module's public surface and the tests pin its behaviour, but nothing in the
+ * user-facing path calls it any more: a settings row that only said "there is
+ * nothing to install" read as a bug.
  */
 
 var __id__ = "re_extera_dex";
@@ -62,36 +57,87 @@ var CACHE_FILE = "cached.dat";
 // `LocaleController.getInstance().getCurrentLocale().getLanguage() == "ru"`.
 // `Intl` exposes the same device language, so the two client languages the
 // original shipped are the two this port ships.
+//
+// The labels are the module's own (`Режим призрака`, `Теневой бан`, …) so a user
+// who knows the Android plugin recognises the screen.
 
 var STRINGS = {
     ru: {
-        open_settings: "Настройки re:extera",
-        open_settings_sub: "Модуль re:extera — это dex-код для Android. iOS его не исполняет; кнопка проверит, есть ли сборка под вашу версию Telegram.",
-        checking: "Проверяем версию re:extera…",
-        found: "Для Telegram {0} есть сборка re:extera: код {1}.",
-        // The wording says what is true: iOS does not run dex at all, so this is
-        // information about upstream, not a failure of the plugin. The previous
-        // text read like an error ("отдельной сборки нет"), which made a working
-        // plugin look broken.
-        found_fallback: "Сборок re:extera для iOS не бывает: модуль — это dex для Android. Для Telegram {0} ближайшая версия re:extera — {1}, код {2}. Устанавливать её не нужно и некуда.",
-        none: "Для Telegram {0} в списке re:extera нет ни одной сборки.",
-        failed: "Не удалось прочитать список версий re:extera: {0}",
-        no_version: "Версия приложения неизвестна, поэтому версию re:extera сверить не с чем.",
-        cache_found: "В кэше лежит {0} (байт: {1}), но iOS не может исполнить dex.",
-        android_only: "re:extera — модуль на Dalvik. iOS его не исполняет, поэтому плагин только сообщает сведения о версиях.",
+        ghost: "Режим призрака",
+        ghost_sub: "Не отправлять серверу, что вы читаете, печатаете или онлайн.",
+        ghost_typing: "Не отправлять «печатает»",
+        ghost_typing_sub: "Сервер не узнает, что вы набираете текст.",
+        ghost_online: "Не отправлять «онлайн»",
+        ghost_online_sub: "Вы остаётесь офлайн для собеседников, но уход в офлайн отправляется.",
+        ghost_read: "Не читать сообщения",
+        ghost_read_sub: "Галочки «прочитано» не уходят на сервер.",
+        ghost_read_contents: "Не читать истории",
+        ghost_read_contents_sub: "Секретные медиа не помечаются просмотренными.",
+        ghost_stories: "Не отмечать просмотр историй",
+        ghost_stories_sub: "Истории не получают ваш просмотр.",
+        category_privacy: "Приватность",
+        category_history: "История",
+        category_hiding: "Скрытие",
+        save_deleted: "Сохранять удалённые сообщения",
+        save_deleted_sub: "Сохраняет сообщения, которые удалили другие: сервер присылает их удаление.",
+        save_manually_deleted: "Сохранять свои удалённые",
+        save_manually_deleted_sub: "Сохраняет сообщения, которые вы сами удалили через меню «Удалить».",
+        save_edits: "Сохранять историю правок",
+        view_deleted: "Посмотреть удалёнки",
+        clear_deleted: "Очистить удалённые",
+        clear_deleted_confirm: "Окончательно удалить все сохранённые удалённые сообщения?",
+        deleted_messages: "Удалённые сообщения",
+        edited_messages: "Изменённые сообщения",
+        deleted_and_edited: "Изменённые и удалённые сообщения",
+        outgoing_mark: "(исходящее)",
+        list_empty: "Список пуст",
+        shadowban: "Теневой бан",
+        shadowban_sub: "Скрывает сообщения пользователей из списка теневого бана.",
+        filters: "Фильтры",
+        filters_sub: "Скрывает сообщения, подходящие под regex-шаблон.",
+        close: "Закрыть",
+        yes: "Да",
+        no: "Нет",
+        android_only: "re:extera — модуль на Dalvik. iOS его не исполняет, поэтому плагин повторяет его логику на хуках клиента.",
         unloaded: "re:extera: плагин выгружен."
     },
     en: {
-        open_settings: "re:extera Settings",
-        open_settings_sub: "The re:extera module is dex code for Android. iOS cannot execute it; this button checks whether a build exists for your Telegram version.",
-        checking: "Checking the re:extera version…",
-        found: "Telegram {0} has a re:extera build: code {1}.",
-        found_fallback: "There are no re:extera builds for iOS: the module is Android dex. For Telegram {0} the closest re:extera version is {1}, code {2}. There is nothing to install here.",
-        none: "The re:extera list has no build for Telegram {0}.",
-        failed: "Could not read the re:extera version list: {0}",
-        no_version: "The app version is unknown, so there is nothing to compare the re:extera version against.",
-        cache_found: "A cache holds {0} ({1} bytes), but iOS cannot execute dex.",
-        android_only: "re:extera is a Dalvik module. iOS does not run it, so this plugin only reports version information.",
+        ghost: "Ghost mode",
+        ghost_sub: "Never tell the server that you read, are typing, or are online.",
+        ghost_typing: "Do not send \"typing\"",
+        ghost_typing_sub: "The server never learns that you are typing.",
+        ghost_online: "Do not send \"online\"",
+        ghost_online_sub: "You stay offline for contacts, while going offline is still sent.",
+        ghost_read: "Do not read messages",
+        ghost_read_sub: "Read receipts never reach the server.",
+        ghost_read_contents: "Do not read stories",
+        ghost_read_contents_sub: "Secret media is not marked as viewed.",
+        ghost_stories: "Do not mark stories as viewed",
+        ghost_stories_sub: "Stories do not get your view.",
+        category_privacy: "Privacy",
+        category_history: "History",
+        category_hiding: "Hiding",
+        save_deleted: "Save deleted messages",
+        save_deleted_sub: "Keeps messages deleted by someone else, which the server announces.",
+        save_manually_deleted: "Save your own deletions",
+        save_manually_deleted_sub: "Keeps messages you deleted yourself through the \"Delete\" menu.",
+        save_edits: "Save edit history",
+        view_deleted: "View deleted",
+        clear_deleted: "Clear deleted",
+        clear_deleted_confirm: "Permanently remove every saved deleted message?",
+        deleted_messages: "Deleted messages",
+        edited_messages: "Edited messages",
+        deleted_and_edited: "Edited and deleted messages",
+        outgoing_mark: "(outgoing)",
+        list_empty: "The list is empty",
+        shadowban: "Shadow ban",
+        shadowban_sub: "Hides messages from the users on the shadow ban list.",
+        filters: "Filters",
+        filters_sub: "Hides messages matching a regex pattern.",
+        close: "Close",
+        yes: "Yes",
+        no: "No",
+        android_only: "re:extera is a Dalvik module. iOS does not run it, so this plugin repeats its logic on client hooks.",
         unloaded: "re:extera: plugin unloaded."
     }
 };
@@ -157,6 +203,995 @@ function compareVersions(a, b) {
     }
     return 0;
 }
+
+// --- requests ----------------------------------------------------------------
+
+// The requests the module patched on Android, in the runtime's dotted spelling.
+// Each one is a fact a ghost must not send:
+//
+//   - `messages.setTyping` / `messages.setEncryptedTyping`: "I am typing".
+//   - `account.updateStatus`: "I am online".
+//   - `messages.readHistory` / `channels.readHistory`: "I read up to here".
+//   - `messages.readMessageContents` / `channels.readMessageContents`: "I
+//     watched this ephemeral media".
+//   - `stories.readStories`: "I watched this story".
+//
+// The runtime matches both spellings, so a ported plugin may register either.
+var TYPING_REQUESTS = ["messages.setTyping", "messages.setEncryptedTyping"];
+var ONLINE_REQUESTS = ["account.updateStatus"];
+var READ_REQUESTS = ["messages.readHistory", "channels.readHistory"];
+var READ_CONTENT_REQUESTS = ["messages.readMessageContents", "channels.readMessageContents"];
+var STORY_REQUESTS = ["stories.readStories"];
+
+// The updates the module kept a history from. A message must be recorded when
+// it arrives, because a delete update carries only its id: by then the text is
+// gone from the client's own database. `updateEditMessage` overwrites the copy
+// so the saved entry matches what the user last saw.
+//
+// Channels and supergroups are not a variant of the plain updates: Telegram
+// sends `updateNewChannelMessage`, `updateEditChannelMessage` and
+// `updateDeleteChannelMessages` as separate constructors, and the client's own
+// state machine handles them in different branches. A plugin that watched only
+// the three plain names therefore never saw a single message from a channel,
+// which is why saving worked in private chats and nowhere else.
+var UPDATE_HOOKS = [
+    "updateNewMessage",
+    "updateNewChannelMessage",
+    "updateEditMessage",
+    "updateEditChannelMessage",
+    "updateDeleteMessages",
+    "updateDeleteChannelMessages",
+    "updateDeleteScheduledMessages"
+];
+
+// The module's local store. Android kept an SQLite database (`deleted_keys`),
+// which iOS has no counterpart for; one JSON file per account is the same idea
+// with the same data — what was said, by whom, and when — and it survives the
+// re-signing Sideloadly does because it lives in the app's Documents folder.
+var STORE_DIR = "re_extera_store";
+var STORE_LIMIT = 2000;
+
+// --- plugin ----------------------------------------------------------------
+
+function ReExteraPlugin() {
+    BasePlugin.call(this);
+    this.loader = null;
+    // Cached `store.json`. `null` means "not read yet"; `readStore` fills it.
+    this._store = null;
+    // Bumped on every write, so the per-chat row cache below knows when to
+    // rebuild. A chat is rebuilt on every keystroke in the composer and on every
+    // incoming update, so scanning two thousand entries per rebuild for a chat
+    // that has not changed would be work with no visible result.
+    this._storeVersion = 0;
+    this._deletedRowsCache = {};
+}
+
+ReExteraPlugin.prototype = Object.create(BasePlugin.prototype);
+ReExteraPlugin.prototype.constructor = ReExteraPlugin;
+
+// Reads a toggle. `defaultValue` is what the module shipped with: ghost mode was
+// off, its parts were on, so a fresh install changes nothing.
+ReExteraPlugin.prototype.flag = function (key, defaultValue) {
+    var stored = this.get_setting("re_extera_" + key, null);
+    if (stored === null || stored === undefined) {
+        return defaultValue;
+    }
+    return !!stored;
+};
+
+ReExteraPlugin.prototype.ghostEnabled = function () {
+    return this.flag("ghost", false);
+};
+
+// Whether a request of `names` must be dropped. Each part of ghost mode has its
+// own switch, so "do not send online" can be on while "do not read" is off,
+// which is the combination the module's screen offers.
+//
+// `account.updateStatus` carries both directions: `offline: false` is "I am
+// here", `offline: true` is "I left". A ghost suppresses the first and must let
+// the second through, or the client could not even go offline when it is being
+// backgrounded, and the user would stay visibly online forever — the exact
+// opposite of what the switch promises.
+ReExteraPlugin.prototype.shouldBlock = function (name, kind, request) {
+    var ghost = this.ghostEnabled();
+    switch (kind) {
+    case "typing":
+        return ghost && this.flag("ghost_typing", true);
+    case "online":
+        if (!ghost || !this.flag("ghost_online", true)) {
+            return false;
+        }
+        return !(request && request.offline === true);
+    case "read":
+        return ghost && this.flag("ghost_read", true);
+    case "read_contents":
+        return ghost && this.flag("ghost_read_contents", true);
+    case "stories":
+        return ghost && this.flag("ghost_stories", true);
+    default:
+        return false;
+    }
+};
+
+ReExteraPlugin.prototype.classify = function (name) {
+    // The runtime hands a hook the `TL_` spelling of the name it matched, so the
+    // comparison has to normalize before it looks anything up.
+    var normalized = String(name || "").replace(/^TL_/, "").replace(/_/g, ".");
+    if (TYPING_REQUESTS.indexOf(normalized) !== -1) {
+        return "typing";
+    }
+    if (ONLINE_REQUESTS.indexOf(normalized) !== -1) {
+        return "online";
+    }
+    if (READ_REQUESTS.indexOf(normalized) !== -1) {
+        return "read";
+    }
+    if (READ_CONTENT_REQUESTS.indexOf(normalized) !== -1) {
+        return "read_contents";
+    }
+    if (STORY_REQUESTS.indexOf(normalized) !== -1) {
+        return "stories";
+    }
+    return null;
+};
+
+ReExteraPlugin.prototype.on_plugin_load = function () {
+    // Hooks first, loader second. The loader touches the filesystem and the
+    // network, and an exception from either used to abort this function before
+    // a single `add_hook` ran: the plugin looked loaded, had a settings screen,
+    // and never received a request. Ghost mode is decided inside the hook, not
+    // while loading, so nothing below can enable or disable it.
+    var requests = TYPING_REQUESTS.concat(ONLINE_REQUESTS, READ_REQUESTS, READ_CONTENT_REQUESTS, STORY_REQUESTS);
+    for (var i = 0; i < requests.length; i += 1) {
+        this.add_hook(requests[i]);
+    }
+    // The updates the module watched to keep its own history: a message has to
+    // be recorded before it is deleted, and an edit has to overwrite the copy.
+    for (var j = 0; j < UPDATE_HOOKS.length; j += 1) {
+        this.add_hook(UPDATE_HOOKS[j]);
+    }
+
+    this.log("Init " + __version__);
+    // One line that answers "is the store writable at all": a path of `null`
+    // means `get_plugin_directory()` failed and nothing can be saved, and a path
+    // the sandbox refuses shows up as a failed write on the first message.
+    var storePath = this.storePath();
+    this.log("Store " + (storePath === null ? "unavailable" : storePath)
+        + ", save deleted " + (this.saveRemoteDeletionsEnabled() ? "on" : "off")
+        + ", save own " + (this.saveOwnDeletionsEnabled() ? "on" : "off"));
+    try {
+        this.load();
+    } catch (error) {
+        this.log("Loader failed, hooks are still active: " + error);
+    }
+};
+
+// `pre_request_hook` is where a ghost lives: dropping the request is the whole
+// feature, and the client treats the cancellation as an ordinary failure.
+ReExteraPlugin.prototype.pre_request_hook = function (name, account, request) {
+    var kind = this.classify(name);
+    if (kind === null) {
+        return HookResult();
+    }
+    if (this.shouldBlock(name, kind, request)) {
+        this.log("Ghost: dropped " + name);
+        return HookResult.cancel();
+    }
+    return HookResult();
+};
+
+// --- local store ----------------------------------------------------------
+//
+// What `ReExteraDb` did on Android: remember messages so a delete does not lose
+// them. The keys are the module's own (`deleted_keys`, `shadowban_users`,
+// `regex_filters`), and the value shapes follow its entity classes, so a reader
+// who knows the dex recognises the file.
+
+ReExteraPlugin.prototype.storePath = function () {
+    var base = this.get_plugin_directory();
+    if (!base) {
+        return null;
+    }
+    return String(base).replace(/\/+$/, "") + "/" + STORE_DIR + "/store.json";
+};
+
+ReExteraPlugin.prototype.readStore = function () {
+    if (this._store !== null) {
+        return this._store;
+    }
+    this._store = { deleted_keys: [], shadowban_users: [], regex_filters: [], edits: [] };
+    var path = this.storePath();
+    if (!path) {
+        return this._store;
+    }
+    try {
+        file_utils.ensure_dir_exists(String(path).replace(/\/[^/]+$/, ""));
+        var text = file_utils.read_file(path);
+        if (text) {
+            var parsed = JSON.parse(String(text));
+            if (parsed && typeof parsed === "object") {
+                this._store = {
+                    deleted_keys: Array.isArray(parsed.deleted_keys) ? parsed.deleted_keys : [],
+                    shadowban_users: Array.isArray(parsed.shadowban_users) ? parsed.shadowban_users : [],
+                    regex_filters: Array.isArray(parsed.regex_filters) ? parsed.regex_filters : [],
+                    edits: Array.isArray(parsed.edits) ? parsed.edits : []
+                };
+            }
+        }
+    } catch (error) {
+        this.log("Store read failed: " + error);
+    }
+    return this._store;
+};
+
+ReExteraPlugin.prototype.writeStore = function () {
+    var path = this.storePath();
+    if (!path) {
+        return false;
+    }
+    try {
+        var written = !!file_utils.write_file(path, JSON.stringify(this._store));
+        if (written) {
+            this.invalidateRowCache();
+        }
+        return written;
+    } catch (error) {
+        this.log("Store write failed: " + error);
+        return false;
+    }
+};
+
+// Drops the per-chat row cache. Called from every path that changes the store,
+// including the clear action, so a cleared store stops answering rows at once.
+ReExteraPlugin.prototype.invalidateRowCache = function () {
+    this._storeVersion += 1;
+    this._deletedRowsCache = {};
+};
+
+// The module's `save_deleted_messages` / `save_manually_deleted` switches. The
+// two cover different deletes in the module and stay separate here:
+//
+//   - `save_deleted_messages`: messages *someone else* deleted, which arrive as
+//     `updateDeleteMessages` before the copy is dropped. The module's label was
+//     "Сохранять удаленные сообщения".
+//   - `save_manually_deleted`: messages *you* deleted yourself, which the server
+//     never announces and which `on_messages_will_be_deleted` catches. The
+//     module's label was "Сохранять сообщения удаленные вручную".
+//
+// One file answers for both (`deleted_keys`), which is what the module's
+// `ReExteraDb` did too.
+ReExteraPlugin.prototype.saveRemoteDeletionsEnabled = function () {
+    return this.flag("save_deleted_messages", false);
+};
+
+ReExteraPlugin.prototype.saveOwnDeletionsEnabled = function () {
+    return this.flag("save_manually_deleted", false);
+};
+
+// Keeps one entry. `deleted_keys` is a list of objects rather than a map so a
+// message can be looked up by `(peer, id)` without building a compound key, and
+// so the file stays readable. The list is capped: a chat left open for months
+// must not grow the file without bound.
+ReExteraPlugin.prototype.rememberMessage = function (messageJSON, edited, deleted) {
+    var message = messageJSON;
+    if (typeof messageJSON === "string") {
+        try {
+            message = JSON.parse(messageJSON);
+        } catch (error) {
+            return false;
+        }
+    }
+    if (!message || typeof message !== "object") {
+        return false;
+    }
+    var peerId = message.peer_id === undefined ? 0 : Number(message.peer_id);
+    var messageId = message.id === undefined ? 0 : Number(message.id);
+    if (!peerId || !messageId) {
+        return false;
+    }
+    var store = this.readStore();
+    // A message from `on_update_hook` is a raw TL object, where the text is
+    // `message`; `pluginMessageDetailsJSON` calls the same value `text`. Both
+    // spellings are accepted so a saved entry is the same whichever path
+    // produced it, and the panel reads one field.
+    var rawText = message.text !== undefined ? message.text : message.message;
+    // A store that stays empty has three possible causes — no update reached the
+    // plugin, the switch was read as off, or the write failed — and one line per
+    // message would tell them apart, but also flood the log in a busy chat. The
+    // first few are enough for that, and the load line states the switch values.
+    if (this._storeLogged === undefined) {
+        this._storeLogged = 0;
+    }
+    if (this._storeLogged < 5) {
+        this._storeLogged += 1;
+        this.log("Storing " + peerId + " #" + messageId + (edited ? " (edit)" : ""));
+    }
+    var mediaKind = message.media_kind;
+    if (mediaKind === undefined && message.media !== undefined && message.media !== null) {
+        mediaKind = typeof message.media === "object" ? String(message.media._ || "none") : String(message.media);
+    }
+    var sender = message.sender_id !== undefined ? message.sender_id : message.from_id;
+    var entry = {
+        peer_id: peerId,
+        id: messageId,
+        date: message.date === undefined ? 0 : Number(message.date),
+        text: rawText === undefined || rawText === null ? "" : String(rawText),
+        sender_id: typeof sender === "number" ? sender : 0,
+        is_out: !!message.is_out,
+        media_kind: mediaKind === undefined || mediaKind === null ? "none" : String(mediaKind)
+    };
+    // The media itself, already encoded by the host. A raw update from
+    // `on_update_hook` has none — a TL object does not carry the coding — so it
+    // is only recorded when the host supplied it, which it does on the delete
+    // path, and that is the path a saved row is drawn from. Without it the row
+    // falls back to the `media_kind` marker.
+    if (typeof message.media_data === "string" && message.media_data.length !== 0) {
+        entry.media_data = message.media_data;
+    }
+    if (edited) {
+        // An edit replaces the text rather than adding a row: the module showed
+        // a message's current text plus, in its own screen, the earlier ones.
+        for (var i = 0; i < store.edits.length; i += 1) {
+            if (store.edits[i].peer_id === peerId && store.edits[i].id === messageId) {
+                store.edits[i].text = entry.text;
+                store.edits[i].date = entry.date;
+                return this.writeStore();
+            }
+        }
+        store.edits.push(entry);
+        if (store.edits.length > STORE_LIMIT) {
+            store.edits = store.edits.slice(store.edits.length - STORE_LIMIT);
+        }
+        return this.writeStore();
+    }
+    for (var j = 0; j < store.deleted_keys.length; j += 1) {
+        if (store.deleted_keys[j].peer_id === peerId && store.deleted_keys[j].id === messageId) {
+            // Already saved. When this call *is* the deletion — the message had
+            // arrived as `updateNewMessage` earlier and is now being erased — the
+            // existing entry has to be marked, or the sample would stay listed as
+            // a live message. `rememberMessage` is not called twice for a plain
+            // sighting of the same message, so this cannot mark a live one.
+            var changed = false;
+            if (deleted && !store.deleted_keys[j].deleted) {
+                store.deleted_keys[j].deleted = true;
+                changed = true;
+            }
+            // The first sighting came from a raw update, which carries no
+            // encoding; the delete path does, and that copy is what the row is
+            // drawn from. Filling it in here is what lets a message that was
+            // seen before it was deleted still show its sticker.
+            if (entry.media_data && !store.deleted_keys[j].media_data) {
+                store.deleted_keys[j].media_data = entry.media_data;
+                store.deleted_keys[j].media_kind = entry.media_kind;
+                changed = true;
+            }
+            if (changed) {
+                return this.writeStore();
+            }
+            return false;
+        }
+    }
+    // Saved because it was deleted, so the entry is already marked. The delete
+    // update and the state replay that follows it arrive as two separate steps:
+    // `updateDeleteMessages` fires first, when the store is still empty, and the
+    // message itself only arrives with the replay. Without this the entry would
+    // look like an ordinary message that merely happens to be in the file.
+    if (deleted) {
+        entry.deleted = true;
+    }
+    store.deleted_keys.push(entry);
+    if (store.deleted_keys.length > STORE_LIMIT) {
+        store.deleted_keys = store.deleted_keys.slice(store.deleted_keys.length - STORE_LIMIT);
+    }
+    return this.writeStore();
+};
+
+// `putDeletedMessage` in the module: the message is looked up from the copy it
+// already saved, because the delete update itself has no text.
+ReExteraPlugin.prototype.findRemembered = function (peerId, messageId) {
+    var store = this.readStore();
+    for (var i = 0; i < store.deleted_keys.length; i += 1) {
+        var entry = store.deleted_keys[i];
+        if (entry.peer_id === peerId && entry.id === messageId) {
+            return entry;
+        }
+    }
+    return null;
+};
+
+// The module's `ProcessDeletedMessages`: a delete update names only message ids,
+// so the peer is the one the hook was fired for when the update does not carry
+// one. It keeps what was already saved and marks it deleted.
+//
+// `peerId` is optional on purpose. `updateDeleteMessages` carries no peer at
+// all (its ids are the client's global ones), while
+// `updateDeleteChannelMessages` names a `channel_id`; and the scheduled-delete
+// update names a `peer`. Matching on the id alone marked the same id in every
+// chat, so a delete in one dialog silently crossed out an unrelated saved
+// message in another. When the update knows the peer, it is used as a second
+// key; when it does not, the id alone is all there is, which is the old
+// behaviour.
+ReExteraPlugin.prototype.processDeletedMessages = function (account, messageIds, peerId) {
+    if (!this.saveRemoteDeletionsEnabled()) {
+        return;
+    }
+    if (!Array.isArray(messageIds) || messageIds.length === 0) {
+        return;
+    }
+    var peer = (peerId === undefined || peerId === null) ? null : Number(peerId);
+    if (peer === 0) {
+        peer = null;
+    }
+    // Logged at the one place a delete is applied: when a saved message is not
+    // marked deleted, the log shows which ids arrived and which peer they were
+    // matched against, so an id-space problem is visible without a debugger.
+    // Capped like the storing lines, because a channel difference can name
+    // hundreds of ids in one batch.
+    if (this._deleteLogged === undefined) {
+        this._deleteLogged = 0;
+    }
+    if (this._deleteLogged < 5) {
+        this._deleteLogged += 1;
+        this.log("Delete " + messageIds.join(",") + (peer === null ? " (global ids)" : " peer " + peer));
+    }
+    var matches = function (entry) {
+        if (peer !== null && Number(entry.peer_id) !== peer) {
+            return false;
+        }
+        return true;
+    };
+    var store = this.readStore();
+    var changed = false;
+    for (var i = 0; i < messageIds.length; i += 1) {
+        var id = Number(messageIds[i]);
+        for (var j = 0; j < store.edits.length; j += 1) {
+            if (store.edits[j].id === id && !store.edits[j].deleted && matches(store.edits[j])) {
+                store.edits[j].deleted = true;
+                changed = true;
+            }
+        }
+        for (var k = 0; k < store.deleted_keys.length; k += 1) {
+            if (store.deleted_keys[k].id === id && !store.deleted_keys[k].deleted && matches(store.deleted_keys[k])) {
+                store.deleted_keys[k].deleted = true;
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        this.writeStore();
+    }
+};
+
+// --- updates --------------------------------------------------------------
+
+// `on_messages_will_be_deleted` — the iOS equivalent of the module's
+// `DeleteMessages` / `MarkMessagesAsDeletedInternal` hooks.
+//
+// A delete the *server* performs arrives as `updateDeleteMessages`, but that
+// update carries ids only, and in a private chat the ids are the client's global
+// ones. The message is frequently absent from the plugin's own store too: it came
+// from history rather than from `updateNewMessage`. The host therefore reads each
+// message out of its database at the instant of deletion and hands it over here
+// with `remote` set, which is what the Android module did as well.
+//
+// A delete the user performs himself is a different path: the client asks the
+// server, the server answers with `affectedMessages`, and the row is dropped
+// locally, so `updateDeleteMessages` never arrives. That path comes here without
+// `remote`. The two are separate switches in the module ("Сохранять удаленные
+// сообщения" and "Сохранять сообщения удаленные вручную") and stay separate here.
+//
+// The list is capped like the update path, and duplicates are ignored, so a
+// message the client deletes twice — or one that also arrived as
+// `updateNewMessage` — keeps one entry.
+ReExteraPlugin.prototype.on_messages_will_be_deleted = function (account, payload) {
+    var messages = payload && payload.messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+        return;
+    }
+    // `remote` is the server's delete, which the first switch covers. Anything
+    // without it is the user's own delete, which only the second switch keeps.
+    var remote = payload.remote === true;
+    if (remote ? !this.saveRemoteDeletionsEnabled() : !this.saveOwnDeletionsEnabled()) {
+        return;
+    }
+    for (var i = 0; i < messages.length; i += 1) {
+        var message = messages[i];
+        if (!message || typeof message !== "object") {
+            continue;
+        }
+        // Already a deletion, so the entry is written marked: the message is
+        // being removed and this is the only copy that will exist.
+        this.rememberMessage(message, false, true);
+    }
+};
+
+// `ProcessNewMessages` / `ProcessUpdates` from the module. The message arrives
+// as a TL object now (see `pluginJSONValue` in TelegramCore): `peer_id` is
+// `{"_": "peerUser", "user_id": ...}`, which `peerKey` flattens to the same
+// number the message details use.
+function peerKey(peer) {
+    if (peer === undefined || peer === null) {
+        return 0;
+    }
+    if (typeof peer === "number") {
+        return peer;
+    }
+    if (typeof peer === "string") {
+        return 0;
+    }
+    // The encoding Postbox's `PeerId.toInt64` uses, which is also what
+    // `pluginMessageDetailsJSON` reports as `peer_id`: the namespace in bits
+    // 32..34 and the raw id in the low bits.
+    var userNamespace = 0;
+    var groupNamespace = 1;
+    var channelNamespace = 2;
+    var base = 4294967296; // 2^32, one namespace step
+    if (typeof peer.user_id === "number") {
+        return peer.user_id + userNamespace * base;
+    }
+    if (typeof peer.chat_id === "number") {
+        return peer.chat_id + groupNamespace * base;
+    }
+    if (typeof peer.channel_id === "number") {
+        return peer.channel_id + channelNamespace * base;
+    }
+    return 0;
+}
+
+// `channel_id` is a bare number, not a `Peer` object, so it needs the same
+// namespace encoding `peerKey` applies: a channel's peer id is its id plus
+// `2 * 2^32`. Returns 0 when the update carries none.
+function channelPeerKey(channelId) {
+    if (typeof channelId !== "number" || !isFinite(channelId) || channelId === 0) {
+        return 0;
+    }
+    return channelId + 2 * 4294967296;
+}
+
+// The message a `...ChannelMessage` update carries is described exactly like the
+// one a plain update carries, so both go through this: the TL object has to have
+// its `peer_id` flattened before the store sees it, because the store keeps the
+// number `pluginMessageDetailsJSON` reports.
+ReExteraPlugin.prototype.rememberFromUpdate = function (messageObject, edited) {
+    if (!messageObject || typeof messageObject !== "object") {
+        return;
+    }
+    var peer = peerKey(messageObject.peer_id);
+    if (peer) {
+        messageObject.peer_id = peer;
+    }
+    // A TL message spells the direction `out`, while the flattened form uses
+    // `is_out`. The store keeps `is_out`, so the TL spelling is translated here
+    // instead of being lost: an own message was saved as incoming before.
+    if (messageObject.out !== undefined && messageObject.is_out === undefined) {
+        messageObject.is_out = !!messageObject.out;
+    }
+    // `from_id` is optional in the schema, so `pluginJSONValue` hands an absent
+    // one over as `null` rather than leaving the key out. Compared against
+    // `undefined` alone, that null became peer 0 and the author was lost.
+    var from = messageObject.from_id;
+    if (from !== undefined && from !== null) {
+        messageObject.from_id = peerKey(from);
+    } else {
+        delete messageObject.from_id;
+    }
+    // A channel post has no `from_id`: the channel itself is the author. The
+    // module recorded it as `sender_id` so a ported filter still has a value,
+    // but that fallback belongs to channels only — a private message with no
+    // author (an anonymous admin, a deleted account) really has none, and
+    // inventing the chat there would make a shadow ban on the chat hide itself.
+    var isChannelPeer = peer >= 2 * 4294967296 && peer < 3 * 4294967296;
+    if (isChannelPeer && messageObject.sender_id === undefined && messageObject.from_id === undefined) {
+        messageObject.sender_id = peer;
+    }
+    if (edited) {
+        if (this.flag("save_edits", true)) {
+            this.rememberMessage(messageObject, true);
+        }
+        return;
+    }
+    if (this.saveRemoteDeletionsEnabled()) {
+        this.rememberMessage(messageObject, false);
+    }
+};
+
+ReExteraPlugin.prototype.on_update_hook = function (name, account, update) {
+    var normalized = String(name || "").replace(/^TL_/, "");
+    if (!update || typeof update !== "object") {
+        return;
+    }
+    if (normalized === "updateNewMessage" || normalized === "updateNewChannelMessage") {
+        this.rememberFromUpdate(update.message, false);
+        return;
+    }
+    if (normalized === "updateEditMessage" || normalized === "updateEditChannelMessage") {
+        this.rememberFromUpdate(update.message, true);
+        return;
+    }
+    if (normalized === "updateDeleteChannelMessages") {
+        // The only delete update that names its peer. Without it the ids would
+        // be matched across every chat.
+        this.processDeletedMessages(account, update.messages, channelPeerKey(update.channel_id));
+        return;
+    }
+    if (normalized === "updateDeleteScheduledMessages") {
+        // Scheduled messages live in their own namespace and are named by a
+        // `peer` object rather than a channel id, so the peer comes from there.
+        this.processDeletedMessages(account, update.messages, peerKey(update.peer));
+        return;
+    }
+    if (normalized === "updateDeleteMessages") {
+        // No peer in this constructor: the ids are global and the client resolves
+        // them itself. Matching by id alone is all that is possible here.
+        this.processDeletedMessages(account, update.messages, null);
+    }
+};
+
+// --- shadow ban and filters ------------------------------------------------
+//
+// The two features the module enforced by rewriting the chat list. `on_hide_message`
+// is that same decision, asked for one row at a time: the runtime drops the row
+// when it answers `true`.
+
+ReExteraPlugin.prototype.isShadowbanned = function (peerId) {
+    var store = this.readStore();
+    for (var i = 0; i < store.shadowban_users.length; i += 1) {
+        if (Number(store.shadowban_users[i].peer_id) === Number(peerId)) {
+            return store.shadowban_users[i];
+        }
+    }
+    return null;
+};
+
+// A message is hidden when it comes from a shadow-banned peer (`hide_messages`,
+// the module's "hide in groups" switch) or when its text matches one of the
+// regex filters. The dialog itself is hidden separately, which iOS has no list
+// hook for; hiding its messages is what the module's group switch did.
+ReExteraPlugin.prototype.on_hide_message = function (account, messageJSON) {
+    var message = messageJSON;
+    if (typeof messageJSON === "string") {
+        try {
+            message = JSON.parse(messageJSON);
+        } catch (error) {
+            return false;
+        }
+    }
+    if (!message || typeof message !== "object") {
+        return false;
+    }
+    if (this.flag("shadowban", false)) {
+        var entry = this.isShadowbanned(message.sender_id);
+        if (entry !== null && entry.hide_messages !== false) {
+            return true;
+        }
+    }
+    if (this.flag("filters_enabled", false)) {
+        var text = message.text === undefined ? "" : String(message.text);
+        var filters = this.readStore().regex_filters;
+        for (var i = 0; i < filters.length; i += 1) {
+            var pattern = filters[i].pattern;
+            if (!pattern) {
+                continue;
+            }
+            try {
+                if (new RegExp(pattern, filters[i].flags || "").test(text)) {
+                    return true;
+                }
+            } catch (error) {
+                // A broken pattern is ignored rather than hiding every message:
+                // the module logged the regex error and kept the row.
+                continue;
+            }
+        }
+    }
+    return false;
+};
+
+ReExteraPlugin.prototype.on_plugin_unload = function () {
+    // The original's body was unreachable after a bare `return`; keeping it
+    // reachable is the one behaviour change here, and it only stops a loader that
+    // never started anything.
+    if (this.loader !== null) {
+        this.loader.unload();
+    }
+    this.log(t("unloaded"));
+};
+
+ReExteraPlugin.prototype.create_settings = function () {
+    var self = this;
+    var rows = [
+        Header({ text: t("category_privacy") }),
+        Switch({
+            key: "re_extera_ghost",
+            text: t("ghost"),
+            subtext: t("ghost_sub"),
+            default: this.flag("ghost", false),
+            on_change: function (value) {
+                self.set_setting("re_extera_ghost", !!value);
+            }
+        })
+    ];
+
+    // The parts only make sense under the master switch, and the module nested
+    // them the same way. They stay visible so a user can see what ghost mode
+    // covers without turning it on.
+    var parts = [
+        ["re_extera_ghost_typing", "ghost_typing", true],
+        ["re_extera_ghost_online", "ghost_online", true],
+        ["re_extera_ghost_read", "ghost_read", true],
+        ["re_extera_ghost_read_contents", "ghost_read_contents", true],
+        ["re_extera_ghost_stories", "ghost_stories", true]
+    ];
+    for (var i = 0; i < parts.length; i += 1) {
+        (function (row) {
+            rows.push(Switch({
+                key: row[0],
+                text: t(row[1]),
+                subtext: t(row[1] + "_sub"),
+                default: self.flag(row[1], row[2]),
+                on_change: function (value) {
+                    self.set_setting(row[0], !!value);
+                }
+            }));
+        })(parts[i]);
+    }
+
+    // `Информация` in the module: the history switches.
+    rows.push(Header({ text: t("category_history") }));
+    rows.push(Switch({
+        key: "re_extera_save_deleted_messages",
+        text: t("save_deleted"),
+        subtext: t("save_deleted_sub"),
+        default: this.flag("save_deleted_messages", false),
+        on_change: function (value) {
+            self.set_setting("re_extera_save_deleted_messages", !!value);
+        }
+    }));
+    // The module's second history switch. Deleting your own message never comes
+    // back as an update, so it is a separate decision: a user may want the
+    // messages others removed without keeping everything he removed himself.
+    rows.push(Switch({
+        key: "re_extera_save_manually_deleted",
+        text: t("save_manually_deleted"),
+        subtext: t("save_manually_deleted_sub"),
+        default: this.flag("save_manually_deleted", false),
+        on_change: function (value) {
+            self.set_setting("re_extera_save_manually_deleted", !!value);
+        }
+    }));
+    rows.push(Switch({
+        key: "re_extera_save_edits",
+        text: t("save_edits"),
+        default: this.flag("save_edits", true),
+        on_change: function (value) {
+            self.set_setting("re_extera_save_edits", !!value);
+        }
+    }));
+    rows.push(Text({
+        key: "re_extera_view_deleted",
+        text: t("view_deleted"),
+        accent: true,
+        on_click: function () {
+            self.showDeletedMessages();
+        }
+    }));
+    rows.push(Text({
+        key: "re_extera_clear_deleted",
+        text: t("clear_deleted"),
+        red: true,
+        on_click: function () {
+            self.confirmClearDeleted();
+        }
+    }));
+
+    // `Теневой бан` and `Фильтры` — the two switches that make a message row
+    // disappear. Both act through `on_hide_message` above.
+    rows.push(Header({ text: t("category_hiding") }));
+    rows.push(Switch({
+        key: "re_extera_shadowban",
+        text: t("shadowban"),
+        subtext: t("shadowban_sub"),
+        default: this.flag("shadowban", false),
+        on_change: function (value) {
+            self.set_setting("re_extera_shadowban", !!value);
+        }
+    }));
+    rows.push(Switch({
+        key: "re_extera_filters_enabled",
+        text: t("filters"),
+        subtext: t("filters_sub"),
+        default: this.flag("filters_enabled", false),
+        on_change: function (value) {
+            self.set_setting("re_extera_filters_enabled", !!value);
+        }
+    }));
+
+    return rows;
+};
+
+// --- rows for the copies left in the chat -----------------------------------
+//
+// The module on Android put the saved message back into the dialog
+// (`DeletedMessagesInChatFragment`, and its `putDeletedMessage` in the message
+// list). Here the host builds the row, because the message is gone from the
+// database and only the plugin knows the copy; this callback is that copy, one
+// chat at a time.
+//
+// Only entries marked `deleted` are answered: `deleted_keys` also holds the
+// messages that merely passed through `updateNewMessage`, and a live message
+// must not be drawn twice. `edits` is deliberately not included — an edited
+// message is still in the chat, so a saved version of it is not a deleted row.
+ReExteraPlugin.prototype.on_deleted_messages = function (account, payload) {
+    var peerId = 0;
+    if (payload && typeof payload === "object") {
+        peerId = Number(payload.peer_id === undefined ? 0 : payload.peer_id);
+    }
+    // Both switches have to be read the same way they are written, or a chat
+    // would show copies the user's own toggles say to drop.
+    if (!this.saveRemoteDeletionsEnabled() && !this.saveOwnDeletionsEnabled()) {
+        return [];
+    }
+    var cacheKey = peerId + "@" + this._storeVersion;
+    var cached = this._deletedRowsCache[cacheKey];
+    if (cached !== undefined) {
+        return cached;
+    }
+    var store = this.readStore();
+    var rows = [];
+    for (var i = 0; i < store.deleted_keys.length; i += 1) {
+        var entry = store.deleted_keys[i];
+        if (entry.deleted !== true) {
+            continue;
+        }
+        if (Number(entry.peer_id) !== peerId) {
+            continue;
+        }
+        rows.push({
+            id: Number(entry.id),
+            date: Number(entry.date || 0),
+            text: entry.text === undefined || entry.text === null ? "" : String(entry.text),
+            media_kind: entry.media_kind === undefined || entry.media_kind === null ? "none" : String(entry.media_kind),
+            media_data: typeof entry.media_data === "string" ? entry.media_data : "",
+            sender_id: Number(entry.sender_id || 0),
+            is_out: !!entry.is_out
+        });
+    }
+    this._deletedRowsCache[cacheKey] = rows;
+    return rows;
+};
+
+// `on_forget_deleted_messages` — the user selected a saved copy in the chat and
+// deleted it. The row is not in Telegram's database, so the client cannot drop
+// it: it asks here, and the copy is removed from the store. `deleted_keys` is
+// what `on_deleted_messages` reads, so dropping the entry here is the same as
+// deleting the row; `invalidateRowCache` makes the next build stop answering
+// with it. `edits` is untouched — an edited message is a live message, not a
+// deleted row, and the chat never draws it as one.
+ReExteraPlugin.prototype.on_forget_deleted_messages = function (account, payload) {
+    if (!payload || typeof payload !== "object") {
+        return;
+    }
+    var peerId = Number(payload.peer_id === undefined ? 0 : payload.peer_id);
+    var ids = payload.message_ids;
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return;
+    }
+    var wanted = {};
+    for (var i = 0; i < ids.length; i += 1) {
+        wanted[Number(ids[i])] = true;
+    }
+    var store = this.readStore();
+    var kept = [];
+    var removed = 0;
+    for (var j = 0; j < store.deleted_keys.length; j += 1) {
+        var entry = store.deleted_keys[j];
+        if (Number(entry.peer_id) === peerId && wanted[Number(entry.id)] === true) {
+            removed += 1;
+            continue;
+        }
+        kept.push(entry);
+    }
+    if (removed === 0) {
+        return;
+    }
+    store.deleted_keys = kept;
+    this.writeStore();
+    this.log("Forgot " + removed + " saved message(s) in " + peerId);
+};
+
+// --- profile / menu ---------------------------------------------------------
+
+// One line of the deleted/edited screen: the peer, the message id, and the text
+// (or a media marker when the message had none). The module's own adapter showed
+// the same three pieces.
+function formatStoredEntry(entry) {
+    var text = entry.text === "" ? "[" + String(entry.media_kind || "media") + "]" : entry.text;
+    var line = entry.peer_id + " #" + entry.id + ": " + text;
+    if (entry.is_out) {
+        line = line + " " + t("outgoing_mark");
+    }
+    return line;
+}
+
+// --- screens --------------------------------------------------------------
+
+// `Посмотреть удаленки`: the module opened `DeletedMessagesInChatFragment`.
+// Here the stored entries are listed in one dialog, newest first, because a
+// plugin cannot push a fragment of its own. Entries the module's own screen also
+// showed — the saved edits — follow the deletions, under their own heading, as
+// `DeletedAndEditedMessagesFragment` did.
+ReExteraPlugin.prototype.showDeletedMessages = function () {
+    var store = this.readStore();
+    var entries = store.deleted_keys.slice().sort(function (a, b) {
+        return Number(b.date || 0) - Number(a.date || 0);
+    });
+    var edits = store.edits.slice().sort(function (a, b) {
+        return Number(b.date || 0) - Number(a.date || 0);
+    });
+    if (entries.length === 0 && edits.length === 0) {
+        this.log("Deleted message store is empty");
+        this.pluginBulletin("info", t("list_empty"));
+        return;
+    }
+    var lines = [];
+    if (entries.length !== 0) {
+        lines.push(t("deleted_messages"));
+        for (var i = 0; i < entries.length && i < 40; i += 1) {
+            lines.push(formatStoredEntry(entries[i]));
+        }
+    }
+    if (edits.length !== 0) {
+        if (lines.length !== 0) {
+            lines.push("");
+        }
+        lines.push(t("edited_messages"));
+        for (var j = 0; j < edits.length && j < 40; j += 1) {
+            lines.push(formatStoredEntry(edits[j]));
+        }
+    }
+    var builder = new AlertDialogBuilder(null);
+    builder.set_title(t("deleted_and_edited"));
+    builder.set_message(lines.join("\n"));
+    builder.set_negative_button(t("close"), function (dialog) {
+        if (dialog) {
+            dialog.dismiss();
+        }
+    });
+    builder.show();
+};
+
+ReExteraPlugin.prototype.confirmClearDeleted = function () {
+    var self = this;
+    var builder = new AlertDialogBuilder(null);
+    builder.set_title(t("clear_deleted"));
+    builder.set_message(t("clear_deleted_confirm"));
+    builder.set_positive_button(t("yes"), function (dialog) {
+        if (dialog) {
+            dialog.dismiss();
+        }
+        var store = self.readStore();
+        store.deleted_keys = [];
+        store.edits = [];
+        self.writeStore();
+        self.log("Deleted message store cleared");
+    });
+    builder.set_negative_button(t("no"), function (dialog) {
+        if (dialog) {
+            dialog.dismiss();
+        }
+    });
+    builder.show();
+};
+
+ReExteraPlugin.prototype.pluginBulletin = function (kind, text) {
+    if (typeof ui !== "undefined" && ui.bulletin) {
+        if (kind === "error") {
+            ui.bulletin.show_error(text);
+        } else {
+            ui.bulletin.show_info(text);
+        }
+    }
+};
 
 // --- loader ----------------------------------------------------------------
 
@@ -325,7 +1360,7 @@ Loader.prototype.load_from_cache = function () {
         var text = String(encoded);
         var padding = text.endsWith("==") ? 2 : (text.endsWith("=") ? 1 : 0);
         var size = Math.floor(text.length * 3 / 4) - padding;
-        this.log(t("cache_found", CACHE_FILE, size));
+        this.log("cached.dat found in " + CACHE_DIR + " (" + size + " bytes); this client cannot execute dex");
         return text;
     } catch (error) {
         this.log("Error loading from cache: " + error);
@@ -347,7 +1382,7 @@ Loader.prototype.start_from_bytes = function () {
 
 // The original wrote the downloaded bytes to `re_extera_cache/cached.dat` and
 // loaded them. Downloading is deliberately skipped: the file cannot be executed,
-// so the only effect would be 1.3 MB on disk and a plausible-looking cache that
+// so the only effect would be 1.6 MB on disk and a plausible-looking cache that
 // never works.
 Loader.prototype.download_and_cache_dex = function (callback) {
     this.log(t("android_only"));
@@ -359,10 +1394,10 @@ Loader.prototype.get_instance = function () {
     return this.instance;
 };
 
-// `showSettings` on the loaded module. The module is not loaded, so the row that
-// leads here reports the version instead (see `open_settings` below).
+// `showSettings` on the loaded module. The module is not loaded, so this reports
+// that and does nothing else.
 Loader.prototype.show_settings = function () {
-    this.log("Opening settings: the re:extera module has no settings screen on iOS");
+    this.log("Opening settings: the re:extera module has no screen on iOS; its switches are the plugin's own");
     return false;
 };
 
@@ -405,100 +1440,24 @@ Loader.prototype.load_and_start = function () {
     });
 };
 
-// --- plugin ----------------------------------------------------------------
-
-function ReExteraPlugin() {
-    BasePlugin.call(this);
-    this.loader = null;
-    // `finalize()` instantiates the class directly, so the constructor is the one
-    // place that sees every instance. The settings row's `on_click` is built
-    // before any tap and carries no `this`, so it reaches the loader through here.
-    ReExteraPlugin.current = this;
-}
-
-ReExteraPlugin.prototype = Object.create(BasePlugin.prototype);
-ReExteraPlugin.prototype.constructor = ReExteraPlugin;
-
-ReExteraPlugin.prototype.localized_open_settings = function () {
-    return t("open_settings");
-};
-
-ReExteraPlugin.prototype.on_plugin_load = function () {
-    try {
-        this.log("Init " + __version__);
-        this.create_settings();
-        this.load();
-    } catch (error) {
-        this.log("Error: " + error);
-    }
-};
-
-ReExteraPlugin.prototype.on_plugin_unload = function () {
-    // The original's body was unreachable after a bare `return`; keeping it
-    // reachable is the one behaviour change here, and it only stops a loader that
-    // never started anything.
-    if (this.loader !== null) {
-        this.loader.unload();
-    }
-    this.log(t("unloaded"));
-};
-
-ReExteraPlugin.prototype.create_settings = function () {
-    var key = "open_settings";
-    var self = this;
-    return [
-        Text({
-            key: key,
-            text: this.localized_open_settings(),
-            subtext: t("open_settings_sub"),
-            icon: "extera_outline",
-            on_click: function () {
-                self.open_settings();
-            }
-        })
-    ];
-};
-
-// The row the original used to open the module's own screen. There is no such
-// screen here, so the same tap answers the question the module existed for: does
-// upstream ship a build for the client that is running?
-ReExteraPlugin.prototype.open_settings = function () {
-    var loader = this.loader;
-    if (!loader) {
-        return;
-    }
-    ui.bulletin.show_info(t("checking"));
-    loader.fetch_version_info(function (info, error) {
-        if (error) {
-            ui.bulletin.show_error(t("failed", error));
-            return;
-        }
-        var appVersion = loader.get_app_version();
-        if (appVersion === null) {
-            ui.bulletin.show_error(t("no_version"));
-            return;
-        }
-        if (!info) {
-            ui.bulletin.show_info(t("none", appVersion));
-            return;
-        }
-        if (info.exact) {
-            ui.bulletin.show_info(t("found", appVersion, info.code));
-        } else {
-            ui.bulletin.show_info(t("found_fallback", appVersion, info.key, info.code));
-        }
-        if (info.link) {
-            loader.downloadUrl = info.link;
-        }
-    });
-};
-
+// `load` on the plugin, kept from the original so a ported caller reaches the
+// loader. The settings screen does not depend on it: the hooks are registered in
+// `on_plugin_load` and need no loader at all.
 ReExteraPlugin.prototype.load = function () {
     this.log("Loading");
     this.loader = new Loader(this);
     this.loader.load_and_start();
 };
 
-ReExteraPlugin.current = null;
+ReExteraPlugin.prototype.localized_open_settings = function () {
+    return t("ghost");
+};
+
+// The module's own public method, kept for parity. Nothing taps it any more: the
+// settings screen is the plugin's hooks, not a report about a dex.
+ReExteraPlugin.prototype.open_settings = function () {
+    this.log("The module has no settings screen on iOS; the switches above are the whole surface");
+    return false;
+};
 
 var Plugin = ReExteraPlugin;

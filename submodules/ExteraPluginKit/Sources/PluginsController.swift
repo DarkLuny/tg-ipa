@@ -283,9 +283,12 @@ public func pluginsController(context: AccountContext) -> ViewController {
 /// settings page. The overlay stays as a fallback for the case where the manager
 /// is on screen without a stack (nothing else presents it, but a plugin can).
 private func pushPluginController(context: AccountContext, from host: PluginsControllerHost, controller: ViewController) {
-    controller.navigationPresentation = .modal
-    if let container = host.controller, container.navigationController is NavigationController {
-        container.push(controller)
+    // Pushed, not presented: the plugin page joins the same navigation stack the
+    // list lives in, so the bar gets a back arrow from `previousItem` and a
+    // second push from that page keeps appending instead of opening a fresh
+    // modal container. `.modal` here was what made each step its own sheet.
+    if let container = host.controller, let stack = container.navigationController {
+        stack.pushViewController(controller, animated: true)
     } else {
         context.sharedContext.presentGlobalController(controller, nil)
     }
@@ -464,6 +467,13 @@ private final class PluginSettingsControllerArguments {
     let openSubPage: (String, String) -> Void
     let reload: () -> Void
     let remove: () -> Void
+    /// The rows were built from the plugin's `create_settings()`, which is only
+    /// re-run when the page is rebuilt. A switch that saves on its own — a
+    /// callback writing a second key, a page whose content depends on another
+    /// switch — would otherwise leave the row showing the old value, so the page
+    /// listens for its own plugin's saves and bumps. Held here so it is disposed
+    /// together with the controller that owns these arguments.
+    private let settingsDisposable: Disposable
 
     init(
         updateValue: @escaping (String, Any?) -> Void,
@@ -471,7 +481,8 @@ private final class PluginSettingsControllerArguments {
         clickRow: @escaping (String, Bool) -> Void,
         openSubPage: @escaping (String, String) -> Void,
         reload: @escaping () -> Void,
-        remove: @escaping () -> Void
+        remove: @escaping () -> Void,
+        settingsDisposable: Disposable
     ) {
         self.updateValue = updateValue
         self.presentSelector = presentSelector
@@ -479,6 +490,11 @@ private final class PluginSettingsControllerArguments {
         self.openSubPage = openSubPage
         self.reload = reload
         self.remove = remove
+        self.settingsDisposable = settingsDisposable
+    }
+
+    deinit {
+        self.settingsDisposable.dispose()
     }
 }
 
@@ -487,7 +503,7 @@ private final class PluginSettingsControllerArguments {
 /// Shared by the plugin's own page and by any page opened from it, so a nested
 /// page renders exactly like the top level. `startIndex` only shifts the stable
 /// ids, which have to stay unique (and ascending) within one list.
-private func pluginControlEntries(controls: [PluginManager.SettingsControl], startIndex: Int) -> [PluginSettingsEntry] {
+private func pluginControlEntries(controls: [PluginManager.SettingsControl], startIndex: Int, subControls: (String) -> [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
     var entries: [PluginSettingsEntry] = []
     var index = startIndex
     for control in controls {
@@ -536,11 +552,24 @@ private func pluginControlEntries(controls: [PluginManager.SettingsControl], sta
             ))
         case "text", "custom":
             // Three shapes reach here: a row that opens another page, a row that
-            // runs a callback, and a plain caption. `has_sub_fragment` wins,
-            // because exteraGram's builder asks for the page on tap and would
-            // otherwise have its click dropped.
+            // runs a callback, and a plain caption. The page question is answered
+            // by asking the plugin for the page itself rather than by trusting
+            // `has_sub_fragment`: that flag is built by the bootstrap, and when it
+            // is missing the row silently degrades to a caption and the tap does
+            // nothing, which is indistinguishable from "the section does not
+            // open". Asking costs one script call per keyed caption row, which is
+            // what the tap would have cost anyway.
             let title = control.text ?? control.subtext ?? ""
-            if control.hasSubFragment, let key = control.key {
+            var opensPage = control.hasSubFragment
+            if !opensPage, let key = control.key, !control.hasClick, !control.hasLongClick {
+                opensPage = !subControls(key).isEmpty
+            }
+            if opensPage, let key = control.key {
+                // Says which rows the renderer recognised as pages. Without this
+                // line a row that silently became a caption is indistinguishable
+                // from a page that failed to open, and the two have nothing in
+                // common: one is a bridge problem, the other a navigation one.
+                PluginLog.write(pluginId: "plugins-ui", text: "subpage row: key=\(key) title=\(title)")
                 entries.append(.subPage(index: index, key: key, title: title, subtitle: control.subtext))
             } else if let key = control.key, control.hasClick || control.hasLongClick {
                 // A list row only reports a tap, so a `on_long_click`-only row
@@ -566,7 +595,7 @@ private func pluginControlEntries(controls: [PluginManager.SettingsControl], sta
     return entries
 }
 
-private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], loadError: String?) -> [PluginSettingsEntry] {
+private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], loadError: String?, subControls: (String) -> [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
     var entries: [PluginSettingsEntry] = []
     if let loadError = loadError {
         // A plugin that did not load has no settings to show, and saying only
@@ -574,7 +603,7 @@ private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], lo
         entries.append(.note(index: 0, text: "This plugin failed to load: \(loadError)"))
     }
 
-    let controlEntries = pluginControlEntries(controls: controls, startIndex: entries.count)
+    let controlEntries = pluginControlEntries(controls: controls, startIndex: entries.count, subControls: subControls)
     entries.append(contentsOf: controlEntries)
     if controlEntries.isEmpty && loadError == nil {
         entries.append(.empty)
@@ -584,8 +613,8 @@ private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], lo
     return entries
 }
 
-private func pluginSubSettingsEntries(controls: [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
-    let entries = pluginControlEntries(controls: controls, startIndex: 0)
+private func pluginSubSettingsEntries(controls: [PluginManager.SettingsControl], subControls: (String) -> [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
+    let entries = pluginControlEntries(controls: controls, startIndex: 0, subControls: subControls)
     if entries.isEmpty {
         return [.empty]
     }
@@ -605,6 +634,16 @@ private final class PluginSettingsHost {
 private func pluginSettingsArguments(context: AccountContext, pluginId: String, bump: @escaping () -> Void, host: PluginSettingsHost) -> PluginSettingsControllerArguments {
     let manager = PluginManager.shared
     let store = PluginStore.shared
+    // Only this plugin's saves: a page of another plugin is not affected, and a
+    // rebuild on every save of every plugin would lose the scroll position for
+    // no reason. Delivered on the main queue because `setSetting` can be called
+    // from a callback that the script queue runs.
+    let settingsDisposable = (manager.settingsChanged
+    |> deliverOnMainQueue).start(next: { changedId in
+        if changedId == pluginId {
+            bump()
+        }
+    })
     return PluginSettingsControllerArguments(
         updateValue: { key, value in
             manager.setSetting(pluginId: pluginId, key: key, value: value)
@@ -635,7 +674,28 @@ private func pluginSettingsArguments(context: AccountContext, pluginId: String, 
             manager.invokeSettingClick(pluginId: pluginId, key: key, long: long)
         },
         openSubPage: { key, title in
-            host.controller?.push(pluginSubSettingsController(context: context, pluginId: pluginId, parentKey: key, title: title))
+            // Two separate failures look identical from the outside: the tap
+            // never reaches this closure, or it does and there is no stack to
+            // push onto. The line tells them apart on a sideloaded build, where
+            // there is no debugger to ask.
+            let presented = host.controller
+            let stack = presented?.navigationController
+            PluginLog.write(pluginId: pluginId, text: "openSubPage: key=\(key) host=\(presented != nil ? "live" : "gone") stack=\(stack != nil ? "yes" : "no")")
+            let page = pluginSubSettingsController(context: context, pluginId: pluginId, parentKey: key, title: title)
+            if let stack = stack {
+                // Any `UINavigationController` will do, not only the app's own
+                // `NavigationController`: the plugin list is also reachable
+                // through a plain one (a `link_alias` row opens it inside a
+                // `UINavigationController` presented over the window), and
+                // demanding the app's subclass sent every tap on a section in
+                // that screen to the overlay instead of onto the stack.
+                stack.pushViewController(page, animated: true)
+            } else {
+                // No stack to push onto: the list is either not on screen any
+                // more or was opened in an overlay. Falling back to the global
+                // overlay still shows the page; it just has no back arrow.
+                context.sharedContext.presentGlobalController(page, nil)
+            }
         },
         reload: {
             manager.reloadPlugins()
@@ -645,7 +705,8 @@ private func pluginSettingsArguments(context: AccountContext, pluginId: String, 
             store.remove(pluginId: pluginId)
             manager.reloadPlugins()
             bump()
-        }
+        },
+        settingsDisposable: settingsDisposable
     )
 }
 
@@ -683,7 +744,8 @@ public func pluginSettingsController(context: AccountContext, pluginId: String) 
             presentationData: ItemListPresentationData(presentationData),
             entries: pluginSettingsEntries(
                 controls: manager.settings(for: pluginId),
-                loadError: summary?.loadError
+                loadError: summary?.loadError,
+                subControls: { key in manager.subSettings(for: pluginId, parentKey: key) }
             ),
             style: .blocks,
             animateChanges: true
@@ -692,7 +754,6 @@ public func pluginSettingsController(context: AccountContext, pluginId: String) 
     }
 
     let controller = ItemListController(context: context, state: signal)
-    controller.navigationPresentation = .modal
     host.controller = controller
     return controller
 }
@@ -719,6 +780,9 @@ private func pluginSubSettingsController(context: AccountContext, pluginId: Stri
     let host = PluginSettingsHost()
     let arguments = pluginSettingsArguments(context: context, pluginId: pluginId, bump: bump, host: host)
 
+    let subControls = manager.subSettings(for: pluginId, parentKey: parentKey)
+    PluginLog.write(pluginId: pluginId, text: "subpage built: key=\(parentKey) controls=\(subControls.count)")
+
     let signal = combineLatest(
         context.sharedContext.presentationData,
         statePromise.get()
@@ -734,7 +798,10 @@ private func pluginSubSettingsController(context: AccountContext, pluginId: Stri
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: pluginSubSettingsEntries(controls: manager.subSettings(for: pluginId, parentKey: parentKey)),
+            entries: pluginSubSettingsEntries(
+                controls: manager.subSettings(for: pluginId, parentKey: parentKey),
+                subControls: { key in manager.subSettings(for: pluginId, parentKey: key) }
+            ),
             style: .blocks,
             animateChanges: true
         )
@@ -742,7 +809,6 @@ private func pluginSubSettingsController(context: AccountContext, pluginId: Stri
     }
 
     let controller = ItemListController(context: context, state: signal)
-    controller.navigationPresentation = .modal
     host.controller = controller
     return controller
 }
@@ -823,6 +889,5 @@ public func pluginLogController(context: AccountContext) -> ViewController {
     }
 
     let controller = ItemListController(context: context, state: signal)
-    controller.navigationPresentation = .modal
     return controller
 }

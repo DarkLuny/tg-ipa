@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import JavaScriptCore
 import SwiftSignalKit
 // The appearance hooks' value types (`PluginInsertionAnimation`,
@@ -37,6 +38,20 @@ public final class PluginManager: PluginHost {
     /// from `on_plugin_load`, and at that point it is not in `loaded` yet.
     private var pendingHooks: [String: (requests: [String], substrings: [String], wantsSend: Bool)] = [:]
 
+    /// Cached answer to "does any plugin implement `on_messages_will_be_deleted`".
+    /// See `messagesWillBeDeletedHookAvailable`.
+    private var cachedMessagesWillBeDeletedHook: Bool?
+
+    /// Cached answer to "does any plugin implement `on_deleted_messages`", the
+    /// callback that lists the copies it kept. Warmed and cleared exactly like
+    /// the flag above.
+    private var cachedDeletedMessagesHook: Bool?
+
+    /// Cached answer to "does any plugin implement `on_forget_deleted_messages`",
+    /// the callback that drops a copy when the user deletes its row. Warmed and
+    /// cleared exactly like the flags above.
+    private var cachedForgetDeletedMessagesHook: Bool?
+
     /// Why a plugin on disk did not load, keyed by id. Kept so the list screen can
     /// say so instead of showing the plugin as merely disabled.
     private var failures: [String: String] = [:]
@@ -44,8 +59,17 @@ public final class PluginManager: PluginHost {
     /// Set by the app once the bridge can act on real accounts.
     public var actions: PluginActions?
 
-    /// Called when a plugin's settings should be re-rendered.
-    public var settingsChanged: ((String) -> Void)?
+    /// Fires with the plugin id when a setting was saved, so an open settings page
+    /// can re-read the controls it rendered.
+    ///
+    /// A signal rather than a closure because two pages of the same plugin are on
+    /// screen at once whenever the user opened a nested page: both hold rows from
+    /// that plugin and both have to redraw.
+    private let settingsChangedPipe = ValuePipe<String>()
+
+    public var settingsChanged: Signal<String, NoError> {
+        return self.settingsChangedPipe.signal()
+    }
 
     /// Fires whenever the set of installed/loaded plugins changes, so open
     /// screens rebuild their rows. Every mutation goes through `reloadPlugins` or
@@ -82,6 +106,21 @@ public final class PluginManager: PluginHost {
             return body()
         }
         return self.jsQueue.sync(execute: body)
+    }
+
+    /// The same entry point, visible to `PluginSwizzle`.
+    ///
+    /// A swizzled method runs on whatever thread called it — the main thread for
+    /// UI, the network queue for a callback — and has to re-enter plugin
+    /// JavaScript, which is only safe on the script queue. This blocks that
+    /// caller until the plugin's `before`/`after` has run, which is what an
+    /// Xposed hook does too: the hooked method does not proceed until the hook
+    /// returns.
+    public func runOnJSQueueAndWait(_ body: () -> Void) {
+        // No `_ =` here: `withJSQueue` is generic over the body's return type, so
+        // with a `Void` body it returns `Void`, and discarding a `Void` result is
+        // an error under `-warnings-as-errors` rather than a no-op.
+        self.withJSQueue(body)
     }
 
     /// Like `withJSQueue` but never blocks the caller.
@@ -148,6 +187,19 @@ public final class PluginManager: PluginHost {
     private func loadAllOnQueue() {
         guard let bootstrapSource = self.pluginSource else {
             return
+        }
+        // A build from before the plugins became files wrote its own copies into
+        // the plugins directory and recorded them under a key this build does not
+        // use. Nothing updates those copies any more, so a fixed plugin kept
+        // running its old script after an update — which is exactly what the
+        // report about a stale bulletin was. They are dropped before anything is
+        // read, so not one hook can be answered by a copy the user did not
+        // install.
+        let removedLegacy = self.store.removeLegacyBundledPlugins()
+        if !removedLegacy.isEmpty {
+            for pluginId in removedLegacy {
+                self.pluginLog(pluginId: pluginId, text: "removed a copy written by an older build; install the .plugin again if you want it")
+            }
         }
         let loader = PluginLoader(bootstrapSource: bootstrapSource, host: self)
         let appVersion = self.bundleAppVersion
@@ -220,6 +272,14 @@ public final class PluginManager: PluginHost {
             self.callLifecycle(plugin, "on_plugin_load")
         }
 
+        // A newly loaded plugin may implement `on_messages_will_be_deleted`, and
+        // the cached answer was computed before it existed. Computed here, on the
+        // script queue, so the account state never has to run script itself.
+        self.invalidateHookCaches()
+        _ = self.messagesWillBeDeletedHookAvailable()
+        _ = self.deletedMessagesHookAvailable()
+        _ = self.forgetDeletedMessagesHookAvailable()
+
         // The theme, the peer-name palette and the settings rows were all built
         // before this point: plugin scripts are evaluated after the first frame,
         // and `applyPluginThemeOverride` read `nil` from every plugin that had not
@@ -255,7 +315,16 @@ public final class PluginManager: PluginHost {
         self.lock.lock()
         self.loaded.removeAll()
         self.menuItems.removeAll()
+        self.cachedMessagesWillBeDeletedHook = nil
+        self.cachedDeletedMessagesHook = nil
+        self.cachedForgetDeletedMessagesHook = nil
         self.lock.unlock()
+
+        // Swizzled methods are installed in the Objective-C runtime, not in a
+        // `JSContext`, so they outlive the context that owns them. A removed
+        // plugin's block would otherwise keep running and keep a dead context
+        // alive. Restoring the original IMPs here is what makes unload complete.
+        PluginSwizzle.shared.removeAll()
     }
 
     public var loadedPlugins: [LoadedPlugin] {
@@ -349,6 +418,31 @@ public final class PluginManager: PluginHost {
     /// one, as in exteraGram.
     public func hasUpdateHook(name: String) -> Bool {
         return self.hasRequestHook(name: name)
+    }
+
+    /// Tells plugins that messages are about to be deleted from this device.
+    ///
+    /// Detached like the update hooks and for the same reason: this runs inside
+    /// a postbox transaction, and plugin JavaScript must never take the locks a
+    /// transaction holds. Nothing a plugin answers can reach the caller.
+    public func dispatchMessagesWillBeDeleted(account: Int64, messagesJSON: String) {
+        self.jsQueue.async { [weak self] in
+            guard let self = self else {
+                return
+            }
+            var payload = self.parseJSONObject(messagesJSON) ?? [:]
+            _ = self.dispatch(pluginEvent: "on_messages_will_be_deleted", hookName: "messages", account: account, payload: &payload)
+        }
+    }
+
+    /// Whether any plugin implements `on_messages_will_be_deleted`.
+    ///
+    /// Asked once per delete before any message is described; see
+    /// `PluginHookPoints.wantsMessagesWillBeDeleted`.
+    public func hasMessagesWillBeDeletedHook() -> Bool {
+        // Cached: the local delete path asks this before opening a transaction,
+        // and the answer must not run script on that queue.
+        return self.messagesWillBeDeletedHookCached
     }
 
     /// Mirror of `on_send_message_hook`. Runs for every plugin that asked for it.
@@ -452,6 +546,14 @@ public final class PluginManager: PluginHost {
         let plugins = self.loaded.values.filter { plugin in
             if pluginEvent == "on_send_message_hook" {
                 return plugin.wantsSendMessageHook
+            }
+            if pluginEvent == "on_messages_will_be_deleted" {
+                // Not a TL update, so there is no constructor name to register
+                // against: the callback's presence is the subscription. The
+                // caller asked `hasMessagesWillBeDeletedHook` before paying for
+                // the payload, and a plugin without the callback answers
+                // "default" immediately in `runHook`.
+                return true
             }
             return PluginManager.pluginWants(plugin, hookName: hookName)
         }.sorted { $0.loadIndex < $1.loadIndex }
@@ -577,13 +679,27 @@ public final class PluginManager: PluginHost {
     }
 
     public func pluginSettings(pluginId: String) -> [String: Any] {
-        return self.store.settings(for: pluginId)
+        var values = self.store.settings(for: pluginId)
+        // A switch is stored as a `CFBoolean`, which arrives here as an
+        // `NSNumber`. JavaScriptCore turns an `NSNumber` into a JavaScript
+        // *number*, so `get_setting("hide_gallery", false)` answered `1` and a
+        // plugin written the usual way — `=== true`, or exteraGram's own
+        // `bool(get_setting(...))` on the Android side, where Python returned a
+        // real `bool` — saw a value that was not `true`. Converting here, at the
+        // one funnel every `get_setting` call goes through, gives a script the
+        // boolean it expects without each plugin having to coerce.
+        for (key, value) in values {
+            if let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() {
+                values[key] = number.boolValue
+            }
+        }
+        return values
     }
 
     public func pluginSetSetting(pluginId: String, key: String, value: Any?, reload: Bool) {
         self.store.setSetting(key, value: value, for: pluginId)
         if reload {
-            self.settingsChanged?(pluginId)
+            self.settingsChangedPipe.putNext(pluginId)
         }
     }
 
@@ -663,6 +779,185 @@ public final class PluginManager: PluginHost {
 
     public func pluginFileOperation(pluginId: String, op: String, path: String, payload: String?) -> String? {
         return PluginFileAccess.perform(pluginId: pluginId, op: op, path: path, payload: payload)
+    }
+
+    /// Reads a sibling module for the multi-file loader.
+    ///
+    /// Resolution is confined to the plugin's own directory. `path` may carry
+    /// `./` and `../` from relative imports, so it is normalised and then checked
+    /// against the directory: a resolved path outside it reads nothing, which is
+    /// what keeps `require('../../other_plugin/main')` from crossing between
+    /// plugins. The text is returned as-is; whether it is valid JavaScript is
+    /// decided by the context that evaluates it, which reports a syntax error
+    /// with the file name attached.
+    public func pluginReadModule(pluginId: String, path: String) -> String? {
+        guard let url = self.moduleURL(pluginId: pluginId, path: path) else {
+            return nil
+        }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    public func pluginModuleExists(pluginId: String, path: String) -> Bool {
+        guard let url = self.moduleURL(pluginId: pluginId, path: path) else {
+            return false
+        }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
+    /// Whether an Objective-C class with this name is loaded.
+    ///
+    /// `NSClassFromString` is exactly what `PluginSwizzle` uses to resolve a
+    /// hook target, so the answer a plugin gets from `find_class` and the one the
+    /// install gets cannot disagree.
+    public func pluginClassExists(pluginId: String, className: String) -> Bool {
+        return NSClassFromString(className) != nil
+    }
+
+    /// Runs the plugins' global intent before-handlers for a URL that is about to
+    /// be opened, and answers whether one of them stopped it.
+    ///
+    /// The client calls this from `handleOpenURL` before it hands the URL to its
+    /// own opener. `true` means a plugin registered a before-handler that matches
+    /// this URL and returned `true`, which on Android is `param.setResult(true)`
+    /// stopping the original handling; the client then does not open the URL.
+    ///
+    /// Ordering: plugins are asked in load order and the first `true` short-
+    /// circuits, because once the URL is stopped there is nothing more to stop.
+    /// Each plugin's own handlers are already sorted by ascending priority.
+    public func dispatchUrlIntent(url: String) -> Bool {
+        for plugin in self.loadedPlugins {
+            guard plugin.isEnabled else {
+                continue
+            }
+            if let answer = self.callJS(plugin: plugin, function: "__extera.dispatchUrlIntent", arguments: [url]), answer == "true" {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Runs the plugins' global intent after-handlers once the URL has been
+    /// handled. Never stops anything; a throw is logged and the rest still run.
+    public func dispatchUrlIntentAfter(url: String) {
+        for plugin in self.loadedPlugins {
+            guard plugin.isEnabled else {
+                continue
+            }
+            _ = self.callJS(plugin: plugin, function: "__extera.dispatchUrlIntentAfter", arguments: [url])
+        }
+    }
+
+    /// Builds a runtime subclass, the host half of `jclassbuilder`.
+    ///
+    /// Answers a class name on success and a `"!"`-prefixed reason on failure.
+    /// The bridge carries one string, and a plugin that asked for a subclass of a
+    /// class this build does not have should log why, not catch an exception
+    /// across the JavaScriptCore boundary.
+    public func pluginBuildClass(pluginId: String, superclassName: String, methodsJSON: String, context: JSContext) -> String {
+        var specs: [PluginClassProxy.MethodSpec] = []
+        if let data = methodsJSON.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data),
+           let parsed = object as? [[String: Any]] {
+            for entry in parsed {
+                guard let selector = entry["selector"] as? String, let token = entry["token"] as? String else {
+                    continue
+                }
+                // The plugin's declared arity, which the bootstrap read from the
+                // function's `length`. Missing means "no arguments", the safe
+                // default: a block that reads a register the caller did not write
+                // is worse than one that ignores an argument.
+                let argumentCount: Int
+                if let count = entry["argumentCount"] as? Int {
+                    argumentCount = max(0, min(count, 2))
+                } else if let count = entry["argumentCount"] as? NSNumber {
+                    argumentCount = max(0, min(count.intValue, 2))
+                } else {
+                    argumentCount = 0
+                }
+                specs.append(PluginClassProxy.MethodSpec(selector: selector, token: token, argumentCount: argumentCount))
+            }
+        }
+        do {
+            return try PluginClassProxy.shared.build(
+                ownerId: pluginId,
+                superclassName: superclassName,
+                methods: specs,
+                context: context
+            )
+        } catch {
+            return "!" + String(describing: error)
+        }
+    }
+
+    /// Instantiates a class `pluginBuildClass` built. Only classes this runtime
+    /// made can be instantiated through here.
+    public func pluginMakeClassInstance(pluginId: String, className: String) -> AnyObject? {
+        return PluginClassProxy.shared.makeInstance(className: className)
+    }
+
+    /// Opens the screen a settings row's `link_alias` names.
+    ///
+    /// The alias is the SDK's own vocabulary (`plugins`, `appearance`,
+    /// `notifications`, ...). Only the ones this app actually has are honoured;
+    /// an unknown name is logged and ignored, because opening the wrong screen
+    /// is worse than a row that does nothing.
+    public func pluginOpenSettingLink(pluginId: String, alias: String) {
+        let normalised = alias.trimmingCharacters(in: .whitespaces).lowercased()
+        switch normalised {
+        case "plugins", "plugin_settings":
+            self.actions?.openPluginSettings()
+        default:
+            self.pluginLog(pluginId: pluginId, text: "link_alias \"\(alias)\" has no matching screen on iOS")
+        }
+    }
+
+    /// Installs an Objective-C swizzle for a plugin, through `PluginSwizzle`.
+    ///
+    /// The plugin gives a class and a selector and gets `before`/`after`
+    /// callbacks, which is the iOS shape of an Xposed hook. A class or a method
+    /// that does not exist is answered with a reason, not a thrown error across
+    /// the bridge: a ported plugin usually hooks several methods and wants to
+    /// log the ones this build does not have and keep going.
+    public func pluginInstallSwizzle(
+        pluginId: String,
+        className: String,
+        selector: String,
+        isClassMethod: Bool,
+        beforeToken: String?,
+        afterToken: String?,
+        context: JSContext
+    ) -> String? {
+        let hook = PluginSwizzle.Hook(
+            pluginId: pluginId,
+            className: className,
+            selectorName: selector,
+            isClassMethod: isClassMethod,
+            context: context,
+            beforeToken: beforeToken,
+            afterToken: afterToken
+        )
+        do {
+            try PluginSwizzle.shared.install(hook)
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    /// Resolves a module path inside one plugin's directory, or nil when the
+    /// result would leave it.
+    private func moduleURL(pluginId: String, path: String) -> URL? {
+        let base = self.store.directory(for: pluginId).standardizedFileURL
+        let candidate = base.appendingPathComponent(path).standardizedFileURL
+        let basePath = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        // The entry module itself resolves to the directory, which is not a
+        // file; `hasPrefix` on the directory plus a separator rejects a bare
+        // `..` that lands exactly on the parent without rejecting the base.
+        guard candidate.path == base.path || candidate.path.hasPrefix(basePath) else {
+            return nil
+        }
+        return candidate
     }
 
     public func pluginSelectedAccount(pluginId: String) -> Int64? {
@@ -746,6 +1041,14 @@ public final class PluginManager: PluginHost {
         actions.httpGet(pluginId: pluginId, url: url, headersJSON: headersJSON, timeout: timeout, callbackToken: callbackToken)
     }
 
+    public func pluginHttpRequest(pluginId: String, method: String, url: String, headersJSON: String, bodyBase64: String?, timeout: Double, callbackToken: String) {
+        guard let actions = self.actions else {
+            self.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: ["ok": false, "error": "the plugin runtime is not active"])
+            return
+        }
+        actions.httpRequest(pluginId: pluginId, method: method, url: url, headersJSON: headersJSON, bodyBase64: bodyBase64, timeout: timeout, callbackToken: callbackToken)
+    }
+
     public func pluginProxyList(pluginId: String, callbackToken: String) {
         guard let actions = self.actions else {
             self.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: ["ok": false, "error": "the plugin runtime is not active"])
@@ -770,12 +1073,46 @@ public final class PluginManager: PluginHost {
         actions.proxyRemoveAll(pluginId: pluginId, callbackToken: callbackToken)
     }
 
+    /// Starts, stops or reports the in-app local MTProxy. Answers through
+    /// `resolveBridgeCallback(pluginId:token:...)`.
+    public func pluginLocalProxy(pluginId: String, requestJSON: String, callbackToken: String) {
+        guard let actions = self.actions else {
+            self.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: ["ok": false, "error": "the plugin runtime is not active"])
+            return
+        }
+        actions.localProxy(pluginId: pluginId, requestJSON: requestJSON, callbackToken: callbackToken)
+    }
+
+    /// The local proxy's current status as JSON, synchronously.
+    public func pluginLocalProxyStatus(pluginId: String) -> String {
+        guard let actions = self.actions else {
+            return "{\"ok\":false,\"running\":false,\"error\":\"the plugin runtime is not active\"}"
+        }
+        return actions.localProxyStatus(pluginId: pluginId)
+    }
+
     public func pluginOwnPeerId(pluginId: String, account: Int64?, callbackToken: String) {
         guard let actions = self.actions else {
             self.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: ["ok": false, "error": "the plugin runtime is not active"])
             return
         }
         actions.ownPeerId(pluginId: pluginId, account: account, callbackToken: callbackToken)
+    }
+
+    public func pluginPeerInfo(pluginId: String, account: Int64?, peerId: Int64, callbackToken: String) {
+        guard let actions = self.actions else {
+            self.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: ["ok": false, "error": "the plugin runtime is not active"])
+            return
+        }
+        actions.peerInfo(pluginId: pluginId, account: account, peerId: peerId, callbackToken: callbackToken)
+    }
+
+    public func pluginChatMessages(pluginId: String, account: Int64?, peerId: Int64, limit: Int, callbackToken: String) {
+        guard let actions = self.actions else {
+            self.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: ["ok": false, "error": "the plugin runtime is not active"])
+            return
+        }
+        actions.chatMessages(pluginId: pluginId, account: account, peerId: peerId, limit: limit, callbackToken: callbackToken)
     }
 
     // MARK: - Plugin-visible callbacks
@@ -1087,6 +1424,259 @@ public final class PluginManager: PluginHost {
         return nil
     }
 
+    /// Whether a plugin wants a message row hidden.
+    ///
+    /// Asked per row while the list is built, so it has to stay cheap when no
+    /// plugin listens: the caller checks `hasPluginForHook` before building the
+    /// message JSON. The first plugin that answers `true` wins — hiding a row is
+    /// not a value two plugins can negotiate.
+    public func dispatchHideMessage(account: Int64, messageJSON: String) -> Bool {
+        let context: [String: Any] = ["account": account]
+        for plugin in self.pluginsInLoadOrder {
+            guard let answer = self.queryValue(plugin: plugin, event: "on_hide_message", payloadJSON: messageJSON, context: context) else {
+                continue
+            }
+            if let visible = answer as? Bool {
+                return visible
+            }
+            // An object answer is accepted too, so a plugin can say why it hid a
+            // row without the runtime having to know the reason's shape.
+            if let dictionary = answer as? [String: Any], (dictionary["hide"] as? Bool) == true {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Whether any plugin implements an appearance callback such as `on_hide_message`.
+    ///
+    /// Runs the bootstrap's `hasHook`, which answers whether the plugin instance
+    /// has the method. Called once per history view, never per row, so
+    /// synchronizing onto the script queue is affordable; touching a `JSContext`
+    /// from the caller's thread would not be.
+    public func hasPluginForHook(_ event: String) -> Bool {
+        for plugin in self.pluginsInLoadOrder {
+            guard let answer = self.callJS(plugin: plugin, function: "__extera.hasHook", arguments: [event]) else {
+                continue
+            }
+            if answer == "true" {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Whether a plugin implements `on_messages_will_be_deleted`, answered without
+    /// touching a `JSContext`.
+    ///
+    /// The account state asks this before opening a transaction for a batch that
+    /// may carry a delete. Running script there would block every database reader
+    /// — and this queue — behind plugin code, so the answer is a plain cached
+    /// read. It is warmed while the script queue is held (see `loadAllOnQueue`),
+    /// which is why the first batch already sees a real answer.
+    public var messagesWillBeDeletedHookCached: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.cachedMessagesWillBeDeletedHook ?? false
+    }
+
+    /// The uncached form, which runs plugin JavaScript. Must only be called from
+    /// the script queue, where the call is inline rather than a queue hop.
+    public func messagesWillBeDeletedHookAvailable() -> Bool {
+        self.lock.lock()
+        if let cached = self.cachedMessagesWillBeDeletedHook {
+            self.lock.unlock()
+            return cached
+        }
+        self.lock.unlock()
+        let answer = self.hasPluginForHook("on_messages_will_be_deleted")
+        self.lock.lock()
+        self.cachedMessagesWillBeDeletedHook = answer
+        self.lock.unlock()
+        return answer
+    }
+
+    /// Forgets the cached answer above. Called whenever the loaded set changes,
+    /// because a plugin that defines the callback may have arrived or gone.
+    private func invalidateHookCaches() {
+        self.lock.lock()
+        self.cachedMessagesWillBeDeletedHook = nil
+        self.cachedDeletedMessagesHook = nil
+        self.cachedForgetDeletedMessagesHook = nil
+        self.lock.unlock()
+    }
+
+    /// Whether any plugin keeps copies of deleted messages for a chat.
+    ///
+    /// The history list asks this once per build, before the row loop, so it
+    /// must not run script on a queue the list is being built on. It answers
+    /// from a flag warmed while the script queue is held, exactly like
+    /// `messagesWillBeDeletedHookCached`.
+    public var deletedMessagesHookCached: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.cachedDeletedMessagesHook ?? false
+    }
+
+    /// The uncached form, which runs plugin JavaScript on the script queue.
+    public func deletedMessagesHookAvailable() -> Bool {
+        self.lock.lock()
+        if let cached = self.cachedDeletedMessagesHook {
+            self.lock.unlock()
+            return cached
+        }
+        self.lock.unlock()
+        let answer = self.hasPluginForHook("on_deleted_messages")
+        self.lock.lock()
+        self.cachedDeletedMessagesHook = answer
+        self.lock.unlock()
+        return answer
+    }
+
+    /// The messages a plugin kept after they were deleted, for one chat.
+    ///
+    /// The message is gone from the database, so this is the only source the
+    /// list can build the row from. Plugins are asked in load order and the
+    /// answers are concatenated: two plugins can each keep a copy of a different
+    /// message, and dropping one of them because another answered would lose a
+    /// row the user's own switch asked to keep. A duplicate of the same
+    /// `(peer, id)` is collapsed, because two copies of one message would be two
+    /// identical rows.
+    public func dispatchDeletedMessages(account: Int64, peerId: Int64) -> [PluginStoredMessage] {        let context: [String: Any] = ["account": account, "peer": peerId]
+        let payload = self.jsonText(["peer_id": peerId])
+        var result: [PluginStoredMessage] = []
+        var seen = Set<String>()
+        for plugin in self.pluginsInLoadOrder {
+            guard let answer = self.queryValue(plugin: plugin, event: "on_deleted_messages", payloadJSON: payload, context: context) else {
+                continue
+            }
+            guard let list = answer as? [Any] else {
+                continue
+            }
+            for entry in list {
+                guard let object = entry as? [String: Any],
+                      let message = self.storedMessage(from: object, peerId: peerId) else {
+                    continue
+                }
+                let key = "\(message.peerId):\(message.messageId)"
+                if seen.insert(key).inserted {
+                    result.append(message)
+                }
+            }
+        }
+        // The list is built newest first in some modes and oldest first in
+        // others; the caller merges by index, so the order here is only what a
+        // reader of the payload would expect.
+        return result.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    /// Whether any plugin can forget saved copies.
+    ///
+    /// Read by the delete path on the main queue, so it answers from the flag
+    /// warmed while the script queue is held rather than calling into script.
+    public var canForgetDeletedMessagesHookCached: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.cachedForgetDeletedMessagesHook ?? false
+    }
+
+    /// The uncached form, which runs plugin JavaScript on the script queue.
+    public func forgetDeletedMessagesHookAvailable() -> Bool {
+        self.lock.lock()
+        if let cached = self.cachedForgetDeletedMessagesHook {
+            self.lock.unlock()
+            return cached
+        }
+        self.lock.unlock()
+        let answer = self.hasPluginForHook("on_forget_deleted_messages")
+        self.lock.lock()
+        self.cachedForgetDeletedMessagesHook = answer
+        self.lock.unlock()
+        return answer
+    }
+
+    /// Tells the plugins to forget the copies they kept for the given messages.
+    ///
+    /// A saved row exists only in the plugin's store, so the client cannot drop
+    /// it: it asks here and then rebuilds the list. Every plugin that listens is
+    /// told — a copy can live in more than one store — and the answer is ignored,
+    /// because forgetting is not a value two plugins negotiate.
+    public func dispatchForgetDeletedMessages(account: Int64, peerId: Int64, messageIds: [Int32]) {
+        guard !messageIds.isEmpty else {
+            return
+        }
+        let context: [String: Any] = ["account": account, "peer": peerId]
+        let payload = self.jsonText(["peer_id": peerId, "message_ids": messageIds])
+        for plugin in self.pluginsInLoadOrder {
+            _ = self.queryValue(plugin: plugin, event: "on_forget_deleted_messages", payloadJSON: payload, context: context)
+        }
+    }
+
+    /// One stored row, or `nil` when the plugin's answer cannot describe a
+    /// message a chat row can show.
+    ///
+    /// A missing id or timestamp is refused rather than defaulted: both are what
+    /// place the row among the live messages, and a zero would put every broken
+    /// entry at the very bottom of the chat.
+    private func storedMessage(from object: [String: Any], peerId: Int64) -> PluginStoredMessage? {
+        // `messageId` is `Int32` on the wire, so it is read as one here rather
+        // than widened to `Int` and narrowed back at the call.
+        guard let id = (object["id"] as? NSNumber)?.int32Value, id != 0 else {
+            return nil
+        }
+        let timestamp = (object["date"] as? NSNumber)?.int32Value ?? 0
+        guard timestamp > 0 else {
+            return nil
+        }
+        let sender = (object["sender_id"] as? NSNumber)?.int64Value
+        let mediaKind = (object["media_kind"] as? String).flatMap { $0 == "none" || $0.isEmpty ? nil : $0 }
+        // Passed through untouched: the plugin is only carrying the bytes the
+        // host gave it, and decoding is the caller's job, where the fallback to
+        // `mediaKind` lives if the bytes turn out to be unreadable.
+        let mediaData = (object["media_data"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return PluginStoredMessage(
+            peerId: peerId,
+            messageId: id,
+            timestamp: timestamp,
+            text: (object["text"] as? String) ?? "",
+            mediaKind: mediaKind,
+            mediaData: mediaData,
+            senderId: sender == nil || sender == 0 ? nil : sender,
+            isOutgoing: (object["is_out"] as? Bool) ?? false
+        )
+    }
+
+    /// Whether a plugin wants screenshots allowed for every screen.
+    ///
+    /// The Android original (RFS) cleared `FLAG_SECURE` from the window and from
+    /// every view added to it. iOS has no window flag: protection is per layer,
+    /// and every protected layer is marked through one function, so the answer
+    /// here is applied once to that function instead of to a screen at a time.
+    /// First plugin that answers `true` wins — there is no "half allowed".
+    ///
+    /// Asked on load, on an app event and whenever a setting was saved, never per
+    /// row, so it needs no cached flag.
+    public func dispatchAllowScreenshots(account: Int64?) -> Bool {
+        var context: [String: Any] = [:]
+        if let account = account {
+            context["account"] = account
+        }
+        for plugin in self.pluginsInLoadOrder {
+            guard let answer = self.queryValue(plugin: plugin, event: "on_allow_screenshots", payloadJSON: "null", context: context) else {
+                continue
+            }
+            if let allowed = answer as? Bool, allowed {
+                return true
+            }
+            // A plugin may answer with a reason, the same way `on_hide_message`
+            // may; the shape of the reason is the plugin's business.
+            if let dictionary = answer as? [String: Any], (dictionary["allow"] as? Bool) == true {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Extra rows for the message-details screen, in plugin and item order.
     public func dispatchMessageDetails(account: Int64, messageJSON: String) -> [PluginDetailItem] {
         let context: [String: Any] = ["account": account]
@@ -1379,7 +1969,7 @@ public final class PluginManager: PluginHost {
     /// invoked by key, so no closure crosses the bridge.
     public func setSetting(pluginId: String, key: String, value: Any?) {
         self.store.setSetting(key, value: value, for: pluginId)
-        self.settingsChanged?(pluginId)
+        self.settingsChangedPipe.putNext(pluginId)
         // A colour plugin's accent usually lives in a setting, so a change has to
         // reach the theme that was already built. The callback below answers with
         // the new colour; this asks the interface to rebuild and read it. Sent
@@ -1483,10 +2073,30 @@ public protocol PluginActions: AnyObject {
     // `PluginManager.resolveBridgeCallback(pluginId:token:...)` — never
     // synchronously, and never by blocking the script queue.
     func httpGet(pluginId: String, url: String, headersJSON: String, timeout: Double, callbackToken: String)
+    func httpRequest(pluginId: String, method: String, url: String, headersJSON: String, bodyBase64: String?, timeout: Double, callbackToken: String)
+    /// Opens the app's own plugin settings screen, the target of a settings row
+    /// whose `link_alias` is `plugins`.
+    func openPluginSettings()
     func proxyList(pluginId: String, callbackToken: String)
     func proxyAdd(pluginId: String, linksJSON: String, callbackToken: String)
     func proxyRemoveAll(pluginId: String, callbackToken: String)
+    /// Starts, stops or reports the local MTProxy a plugin asked for, and adds
+    /// or removes its entry in the proxy list. `requestJSON` is
+    /// `{"action": "start" | "stop" | "status", "domain": "zone"}`.
+    func localProxy(pluginId: String, requestJSON: String, callbackToken: String)
+    /// The same status the `status` action answers with, for a settings row that
+    /// cannot wait for a callback.
+    func localProxyStatus(pluginId: String) -> String
     func ownPeerId(pluginId: String, account: Int64?, callbackToken: String)
+
+    /// The profile of one peer, the data behind
+    /// `get_contacts_controller().get_peer(...)`. Answers through
+    /// `resolveBridgeCallback`; `peerId` is the signed numeric id a plugin
+    /// already uses elsewhere.
+    func peerInfo(pluginId: String, account: Int64?, peerId: Int64, callbackToken: String)
+    /// The most recent messages of one chat, the data behind
+    /// `get_messages_controller().get_messages(...)`. `limit` is the page size.
+    func chatMessages(pluginId: String, account: Int64?, peerId: Int64, limit: Int, callbackToken: String)
 
     /// Drops every in-flight bridge request.
     ///

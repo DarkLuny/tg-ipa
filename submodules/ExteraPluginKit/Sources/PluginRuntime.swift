@@ -24,6 +24,11 @@ public final class PluginRuntime {
 
     private var foregroundDisposable: Disposable?
     private var lifecycleDisposable: Disposable?
+    /// Keeps the screenshot switch (RFS) in step with the plugins.
+    private var screenshotOverrideDisposable: Disposable?
+    /// The answer last applied, so a rebuild that changed nothing does not walk
+    /// the window tree again. `nil` until the first apply.
+    private var screenshotOverrideApplied: Bool?
     /// The context `activate` last ran for.
     ///
     /// Launch reaches `activate` once, but the app delegate's launch signal is
@@ -205,6 +210,181 @@ public final class PluginRuntime {
                 return []
             }
             return manager.dispatchMessageDetails(account: accountId, messageJSON: messageJSON)
+        }
+
+        // Asked per row while a chat list is built, and only after
+        // `wantsHideMessage` said a plugin listens: the caller gates the loop
+        // with that one question, so there is no second `hasPluginForHook` here.
+        // Re-asking it per row would double every row's round trip into the
+        // script queue for an answer that cannot change mid-loop.
+        hooks.hideMessage = { accountId, messageJSON in
+            guard manager.hasLoadedPlugins else {
+                return false
+            }
+            return manager.dispatchHideMessage(account: accountId, messageJSON: messageJSON)
+        }
+
+        // Asked once per history view. A chat with a thousand messages must not
+        // encode each of them only to be told nobody listens.
+        hooks.wantsHideMessage = {
+            guard manager.hasLoadedPlugins else {
+                return false
+            }
+            return manager.hasPluginForHook("on_hide_message")
+        }
+
+        // The messages the user deletes himself. The server never announces
+        // them, so this is the only chance a plugin gets to keep them; the
+        // caller asks `wantsMessagesWillBeDeleted` once, before describing any
+        // message, and then hands the description to a detached dispatch.
+        hooks.wantsMessagesWillBeDeleted = {
+            guard manager.hasLoadedPlugins else {
+                return false
+            }
+            // Read from the flag `loadAllOnQueue` warms once per load, not from
+            // `hasPluginForHook`: the account state asks this on its own queue
+            // right before opening a postbox transaction, and running script
+            // there would block every database reader behind plugin code.
+            return manager.messagesWillBeDeletedHookCached
+        }
+
+        hooks.messagesWillBeDeleted = { accountId, messagesJSON in
+            guard manager.hasLoadedPlugins else {
+                return
+            }
+            manager.dispatchMessagesWillBeDeleted(account: accountId, messagesJSON: messagesJSON)
+        }
+
+        // Rows a plugin kept after the message was deleted. Asked once per
+        // history view and only when `wantsDeletedMessages` said a plugin keeps
+        // copies: a chat with a thousand messages must not run script for a
+        // plugin that never stored anything.
+        hooks.wantsDeletedMessages = {
+            guard manager.hasLoadedPlugins else {
+                return false
+            }
+            return manager.deletedMessagesHookCached
+        }
+
+        hooks.deletedMessages = { accountId, peerId in
+            guard manager.hasLoadedPlugins else {
+                return []
+            }
+            return manager.dispatchDeletedMessages(account: accountId, peerId: peerId)
+        }
+
+        // Forgetting a saved copy when the user deletes its row. A saved row is
+        // not in the database, so the delete path cannot drop it; it asks here
+        // and the list rebuilds without the row. `canForgetDeletedMessages` reads
+        // the flag warmed at load, so the delete path never runs script itself.
+        hooks.canForgetDeletedMessages = {
+            guard manager.hasLoadedPlugins else {
+                return false
+            }
+            return manager.canForgetDeletedMessagesHookCached
+        }
+
+        hooks.forgetDeletedMessages = { accountId, peerId, messageIds in
+            guard manager.hasLoadedPlugins else {
+                return
+            }
+            manager.dispatchForgetDeletedMessages(account: accountId, peerId: peerId, messageIds: messageIds)
+        }
+
+        // "Screenshot taken" is a message to the peer, not a protection flag, so
+        // the client would keep reporting it even when a plugin allowed the
+        // capture. The two travel together: whenever the override answers "this
+        // screen is capturable", the report is silenced as well, which is the
+        // behaviour the Android plugin had.
+        //
+        // Read from the flag the override already applied rather than from a
+        // fresh plugin query: this is asked on the enqueue path, possibly off the
+        // main queue, and the flag is one atomic load.
+        hooks.suppressScreenshotReport = {
+            return screenshotsAllowedGlobally()
+        }
+
+        // The screenshots switch (RFS). Applied once, at startup and whenever a
+        // setting changes, rather than per screen: the answer flips one flag in
+        // the layer primitive that every protected layer goes through.
+        //
+        // The initial apply has to run on the main queue and after the plugins
+        // have loaded — protection is requested while the first frame is built,
+        // which is before `startLoading` gets to run the scripts. `PluginManager`
+        // already pushes an appearance-changed event once its load finished, and
+        // that is the signal this reads.
+        self.screenshotOverrideDisposable?.dispose()
+        self.screenshotOverrideDisposable = (PluginHookPoints.shared.appearanceChanged
+        |> deliverOnMainQueue).start(next: { [weak self] in
+            self?.applyScreenshotOverride()
+        })
+    }
+
+    /// Reads every plugin's answer to "allow screenshots" and applies the result.
+    ///
+    /// Runs on the main queue: the answer decides what the next
+    /// `setLayerDisableScreenshots` call does, and clearing the layers that were
+    /// already protected means walking the window tree.
+    private func applyScreenshotOverride() {
+        let manager = PluginManager.shared
+        guard manager.hasLoadedPlugins else {
+            // No plugin, or every plugin was just unloaded: put the stock
+            // behaviour back, or a removed plugin would keep the screenshots
+            // allowed for the rest of the session.
+            self.setScreenshotOverride(false, clearProtected: false)
+            return
+        }
+        let account = self.actions.primaryAccountId
+        let allowed = manager.dispatchAllowScreenshots(account: account)
+        self.setScreenshotOverride(allowed, clearProtected: allowed)
+    }
+
+    /// Applies the answer, and clears the layers that were protected before it.
+    ///
+    /// A layer marked earlier keeps its marking: the flag only stops *future*
+    /// requests from taking effect. Turning the switch on therefore has to walk
+    /// what is on screen and unmark it, or the chat the user is looking at would
+    /// stay uncapturable until it is rebuilt. Turning it off only removes the
+    /// flag: the screens the app rebuilds mark themselves again, and re-marking
+    /// every layer in the tree would protect views that are not media at all.
+    ///
+    /// The sweep runs only when the answer changes, not on every appearance
+    /// rebuild: once the flag is on, no new layer is marked, so there is nothing
+    /// left to clear and walking the tree again would cost a full pass per theme
+    /// change for no effect.
+    private func setScreenshotOverride(_ allowed: Bool, clearProtected: Bool) {
+        if self.screenshotOverrideApplied == allowed {
+            return
+        }
+        self.screenshotOverrideApplied = allowed
+        setScreenshotsAllowedGlobally(allowed)
+        guard clearProtected else {
+            return
+        }
+        // `UIApplication.shared.windows` is deprecated, and this target builds with
+        // warnings as errors; the scenes are the supported route and they also
+        // cover a second, non-key window (an overlay one).
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else {
+                continue
+            }
+            for window in windowScene.windows {
+                Self.clearScreenshotProtection(in: window.layer)
+            }
+        }
+    }
+
+    /// Unmarks every protected layer below `layer`, depth first.
+    ///
+    /// `setScreenshotProtection` is cheap for an unmarked layer (one associated
+    /// object read), so walking everything is simpler and safer than trying to
+    /// find the media nodes among it.
+    private static func clearScreenshotProtection(in layer: CALayer) {
+        if isScreenshotProtected(layer) {
+            setScreenshotProtection(layer, false)
+        }
+        for sublayer in layer.sublayers ?? [] {
+            clearScreenshotProtection(in: sublayer)
         }
     }
 
@@ -480,6 +660,34 @@ private final class PluginActionsImpl: PluginActions {
         }
     }
 
+    /// Opens the plugin list screen, which is what a row with
+    /// `link_alias="plugins"` points at.
+    ///
+    /// The screen is pushed in its own navigation controller and presented over
+    /// the current window, because the row that asked for it is inside a plugin
+    /// settings page that may itself have been presented, and there is no shared
+    /// navigation stack the runtime can reach. Presenting the same list the
+    /// settings entry shows keeps one implementation of the screen.
+    func openPluginSettings() {
+        Queue.mainQueue().async {
+            guard let sharedContext = self.sharedContext,
+                  let context = self.resolve(self.primaryAccountId) else {
+                return
+            }
+            let controller = pluginsController(context: context)
+            // The app's own `NavigationController`, not a bare one: the plugin
+            // list's sections and the log screen are pushed onto whatever stack
+            // this controller lands in, and the app's subclass is what draws the
+            // back button and the theme. A plain `UINavigationController` showed
+            // the list but left the section rows without a stack to open on.
+            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+            let navigation = NavigationController(mode: .single, theme: NavigationControllerTheme(presentationTheme: presentationData.theme))
+            navigation.setViewControllers([controller], animated: false)
+            navigation.modalPresentationStyle = .formSheet
+            sharedContext.applicationBindings.presentNativeController(navigation)
+        }
+    }
+
     // MARK: - Network and proxy
     //
     // These five bridges are the reason a plugin does not need Python: fetching a
@@ -496,6 +704,48 @@ private final class PluginActionsImpl: PluginActions {
     /// which one failed. A `2xx` answer carries the body, the status and the
     /// lowercased headers.
     func httpGet(pluginId: String, url: String, headersJSON: String, timeout: Double, callbackToken: String) {
+        self.performHttp(
+            pluginId: pluginId,
+            method: "GET",
+            url: url,
+            headersJSON: headersJSON,
+            body: nil,
+            timeout: timeout,
+            callbackToken: callbackToken
+        )
+    }
+
+    /// A request with an explicit method and body, for `http.post` and the rest.
+    ///
+    /// `bodyBase64` carries the body because the bridge is text-only and an
+    /// upload is not necessarily UTF-8; a body that does not decode is reported
+    /// to the plugin as a failure rather than sent empty, which would be a
+    /// silently different request.
+    func httpRequest(pluginId: String, method: String, url: String, headersJSON: String, bodyBase64: String?, timeout: Double, callbackToken: String) {
+        var body: Data?
+        if let bodyBase64 = bodyBase64, !bodyBase64.isEmpty {
+            guard let decoded = Data(base64Encoded: bodyBase64) else {
+                PluginManager.shared.resolveBridgeCallback(
+                    pluginId: pluginId,
+                    token: callbackToken,
+                    response: ["ok": false, "error": "the request body is not valid base64"]
+                )
+                return
+            }
+            body = decoded
+        }
+        self.performHttp(
+            pluginId: pluginId,
+            method: method,
+            url: url,
+            headersJSON: headersJSON,
+            body: body,
+            timeout: timeout,
+            callbackToken: callbackToken
+        )
+    }
+
+    private func performHttp(pluginId: String, method: String, url: String, headersJSON: String, body: Data?, timeout: Double, callbackToken: String) {
         var headers: [String: String] = [:]
         if let data = headersJSON.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -507,7 +757,7 @@ private final class PluginActionsImpl: PluginActions {
         }
 
         self.startBridge { completed in
-            return PluginHttpAccess.get(pluginId: pluginId, url: url, headers: headers, timeout: timeout).start(next: { response in
+            return PluginHttpAccess.request(pluginId: pluginId, method: method, url: url, headers: headers, body: body, timeout: timeout).start(next: { response in
                 var result: [String: Any] = [
                     "ok": response.status >= 200 && response.status < 300,
                     "status": response.status,
@@ -594,6 +844,60 @@ private final class PluginActionsImpl: PluginActions {
         }
     }
 
+    /// Runs the in-app local MTProxy, the one capability a plugin cannot build
+    /// for itself: iOS gives a plugin no sockets and no way to open a port, so
+    /// the client owns the listener and the plugin asks for it here.
+    ///
+    /// The request is `{"action": "start" | "stop" | "status", "domain": "zone", "domains": ["zone", ...]}`.
+    /// `start` begins listening on `127.0.0.1`, adds its `tg://proxy` entry to
+    /// the list and makes that entry the active proxy, so messages go through it
+    /// at once; `stop` removes the entry and goes back to a direct connection.
+    /// `domain` is the preferred CloudFlare zone; `domains` lists the fallbacks
+    /// tried in order when it does not answer. The answer is the same object
+    /// `localProxyStatus` returns, under `status`.
+    func localProxy(pluginId: String, requestJSON: String, callbackToken: String) {
+        guard let sharedContext = self.sharedContext else {
+            self.failBridge(pluginId: pluginId, token: callbackToken, error: "no account is available")
+            return
+        }
+        let request = PluginRuntime.parseObject(requestJSON)
+        let action = (request["action"] as? String)?.lowercased() ?? "status"
+        let domain = request["domain"] as? String ?? ""
+        var zones: [String] = []
+        if let list = request["domains"] as? [Any] {
+            zones = list.compactMap { $0 as? String }
+        }
+        let proxy = PluginLocalProxy.shared
+        let respond: (PluginLocalProxy.Status) -> Void = { status in
+            var response: [String: Any] = ["ok": status.error == nil, "status": status.json]
+            if let error = status.error {
+                response["error"] = error
+            }
+            PluginManager.shared.resolveBridgeCallback(pluginId: pluginId, token: callbackToken, response: response)
+        }
+        switch action {
+        case "start":
+            proxy.start(domain: domain, zones: zones, accountManager: sharedContext.accountManager, completion: respond)
+        case "stop":
+            proxy.stop(accountManager: sharedContext.accountManager, completion: respond)
+        default:
+            respond(proxy.currentStatus())
+        }
+    }
+
+    /// The local proxy's status without a round trip, for a settings row that
+    /// has to be built synchronously. Reads locked state only, so it is safe on
+    /// the script queue.
+    func localProxyStatus(pluginId: String) -> String {
+        var object = PluginLocalProxy.shared.currentStatus().json
+        object["ok"] = true
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{\"ok\":false,\"running\":false}"
+        }
+        return text
+    }
+
     /// Empties the proxy list and reports how many entries were dropped.
     func proxyRemoveAll(pluginId: String, callbackToken: String) {
         guard let sharedContext = self.sharedContext else {
@@ -635,6 +939,51 @@ private final class PluginActionsImpl: PluginActions {
             token: token,
             response: ["ok": false, "error": error]
         )
+    }
+
+    /// One peer's profile, behind `get_contacts_controller().get_peer(...)`.
+    ///
+    /// `PluginControllerAccess` resolves it off the account's own queues and
+    /// hands back plain values, so nothing engine-shaped crosses into the bridge.
+    /// A peer the client has never seen answers `{"ok": true, "peer": null}`
+    /// rather than an error: "no such peer" is a legitimate answer a plugin
+    /// branches on, not a failure.
+    func peerInfo(pluginId: String, account: Int64?, peerId: Int64, callbackToken: String) {
+        Queue.mainQueue().async {
+            guard let context = self.resolve(account) else {
+                self.failBridge(pluginId: pluginId, token: callbackToken, error: "no account is available")
+                return
+            }
+            self.startBridge { completed in
+                return PluginControllerAccess.peerInfo(account: context.account, peerId: peerId).start(next: { info in
+                    PluginManager.shared.resolveBridgeCallback(
+                        pluginId: pluginId,
+                        token: callbackToken,
+                        response: ["ok": true, "peer": info?.json ?? NSNull()]
+                    )
+                }, completed: completed)
+            }
+        }
+    }
+
+    /// The most recent messages of one chat, behind
+    /// `get_messages_controller().get_messages(...)`.
+    func chatMessages(pluginId: String, account: Int64?, peerId: Int64, limit: Int, callbackToken: String) {
+        Queue.mainQueue().async {
+            guard let context = self.resolve(account) else {
+                self.failBridge(pluginId: pluginId, token: callbackToken, error: "no account is available")
+                return
+            }
+            self.startBridge { completed in
+                return PluginControllerAccess.chatMessages(account: context.account, peerId: peerId, limit: limit).start(next: { messages in
+                    PluginManager.shared.resolveBridgeCallback(
+                        pluginId: pluginId,
+                        token: callbackToken,
+                        response: ["ok": true, "messages": messages.map { $0.json }]
+                    )
+                }, completed: completed)
+            }
+        }
     }
 
     // MARK: - Bridge lifetime
