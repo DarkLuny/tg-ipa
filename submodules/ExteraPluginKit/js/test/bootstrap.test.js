@@ -142,6 +142,32 @@ test('pre_request_hook can cancel', () => {
     assert.strictEqual(ctx.__extera.normalizeResult(r, 'request').strategy, 'cancel');
 });
 
+test('HookResult works without new, the way every other builder does', () => {
+    const host = makeHost();
+    const ctx = runPlugin(`
+        class P extends BasePlugin {
+            pre_request_hook(name, account, request) {
+                if (name === "TL_messages_setTyping") {
+                    // exteraGram's own examples call this without new. It used
+                    // to throw here, and the dispatcher swallowed the exception:
+                    // the hook looked registered and never cancelled anything.
+                    return HookResult();
+                }
+                return HookResult({ strategy: HookStrategy.CANCEL });
+            }
+        }
+        var __plugin_instance__ = __extera.register(P);
+    `, host);
+    assert.strictEqual(
+        ctx.__extera.runHook('pre_request_hook', '{}', JSON.stringify({ name: 'messages.setTyping', tlName: 'TL_messages_setTyping', account: 900, field: 'request' })),
+        '{"strategy":"default"}'
+    );
+    assert.strictEqual(
+        ctx.__extera.runHook('pre_request_hook', '{}', JSON.stringify({ name: 'messages.readHistory', tlName: 'TL_messages_readHistory', account: 900, field: 'request' })),
+        '{"strategy":"cancel"}'
+    );
+});
+
 test('add_hook forwards match_substring to the host', () => {
     const host = makeHost();
     const ctx = runPlugin(`
@@ -947,9 +973,13 @@ test('BulletinHelper, a string condition and the Java-proxy stubs keep their sha
     assert.strictEqual(JSON.parse(bulletin[3]).text, 'via helper');
     assert.strictEqual(ctx.decorated, 'x');
     assert.strictEqual(ctx.field, 0);
-    // `java_subclass` exists so the decorator syntax parses; instantiating the
-    // generated class fails loudly instead of pretending to be a Java object.
-    assert.throws(() => ctx.__extera.api && ctx.extera_utils.classes.jclassbuilder()(), /Java/);
+    // `java_subclass` exists so the decorator syntax parses; `jclassbuilder`
+    // now builds a real Objective-C subclass through the host. Without a bridge
+    // it hands back a constructor that refuses, and the message names the actual
+    // reason rather than the Android one.
+    const built = ctx.__extera.api ? ctx.extera_utils.classes.jclassbuilder('NSObject', {}) : null;
+    assert.strictEqual(typeof built, 'function');
+    assert.throws(() => built(), /(runtime class building|superclass|is not loaded)/);
 });
 
 test('FilesController registers, rejects duplicates and unregisters', () => {

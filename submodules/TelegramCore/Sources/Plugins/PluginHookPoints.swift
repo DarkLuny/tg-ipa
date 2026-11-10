@@ -70,6 +70,87 @@ public final class PluginHookPoints {
     /// than comparing a name, and app with no plugins should pay neither.
     public var wantsUpdate: ((_ name: String) -> Bool)?
 
+    /// Messages the client is about to delete locally, as `{"messages": [...]}`
+    /// with one `pluginMessageDetailsJSON` object per message.
+    ///
+    /// A delete the *server* performs arrives as `updateDeleteMessages`, and the
+    /// plugin has already seen the message through `updateNewMessage`, so it can
+    /// mark it. Deleting a message the user wrote himself is different: the
+    /// client sends `messages.deleteMessages`, the server answers with
+    /// `affectedMessages` and the client removes the row itself, so no
+    /// `updateDeleteMessages` is ever delivered. The message also never arrived
+    /// as `updateNewMessage` — sending it from this device answers
+    /// `updateShortSentMessage`, of which only the `pts` is applied — so the
+    /// plugin has neither the text nor the delete.
+    ///
+    /// This hook closes that gap at the only point where both facts still exist:
+    /// immediately before the local delete, while the message is in the store.
+    /// It is the iOS equivalent of the Android module's `DeleteMessages` /
+    /// `MarkMessagesAsDeletedInternal` hooks, which stored the message the same
+    /// way. Like the update hooks it is observational: the delete happens either
+    /// way.
+    public var messagesWillBeDeleted: ((_ accountId: Int64, _ messagesJSON: String) -> Void)?
+
+    /// Whether any plugin implements `messagesWillBeDeleted`'s callback.
+    ///
+    /// Asked once per delete, before the messages are encoded, for the same
+    /// reason as `wantsHideMessage`: describing a message walks its attributes
+    /// and media, and an app with no plugin listening should not pay for it on a
+    /// path the user did not ask for. `nil` means nothing asks at all.
+    public var wantsMessagesWillBeDeleted: (() -> Bool)?
+
+    /// Messages a plugin kept after they were deleted, for one chat.
+    ///
+    /// A message the user deletes is erased from the database, so the row is
+    /// rebuilt here from the copy the plugin stored. `peerId` is Postbox's
+    /// `PeerId.toInt64()`, the same number `pluginMessageDetailsJSON` reports as
+    /// `peer_id`, and the answer is the rows that still belong in the chat,
+    /// oldest first.
+    ///
+    /// The rows are not in the database: they exist only in the list, which is
+    /// why the entries carrying them are marked `isDeleted` and the date/status
+    /// node draws the marker. `nil` means nothing keeps copies at all.
+    public var deletedMessages: ((_ accountId: Int64, _ peerId: Int64) -> [PluginStoredMessage])?
+
+    /// Whether any plugin keeps deleted messages for a chat.
+    ///
+    /// Asked once per history view, before the row loop, for the same reason as
+    /// `wantsHideMessage`: a plugin that keeps nothing must not cost a script
+    /// call on every chat the user opens.
+    public var wantsDeletedMessages: (() -> Bool)?
+
+    /// Asks a plugin to forget the copies it kept for the given messages.
+    ///
+    /// A saved row is not in the database, so the delete path cannot drop it on
+    /// its own: the copy in the plugin's store is the row, and only the plugin
+    /// can drop it. The UI calls this with the ids it is about to remove, then
+    /// rebuilds the list, which is what makes a saved row disappear when the
+    /// user selects it and deletes it like any other message.
+    ///
+    /// `peerId` and each id are Postbox's own numbers, the same ones the rows
+    /// carry (`peerId.toInt64()` and `MessageId.id`).
+    public var forgetDeletedMessages: ((_ accountId: Int64, _ peerId: Int64, _ messageIds: [Int32]) -> Void)?
+
+    /// Whether any plugin can forget saved copies, so the delete path can skip
+    /// the call when nothing listens.
+    public var canForgetDeletedMessages: (() -> Bool)?
+
+    // MARK: - Screenshot reports
+    //
+    // Telegram reports a screenshot to the peer by enqueuing a
+    // `TelegramMediaAction.historyScreenshot` service message. The report is
+    // *not* part of the screenshot protection: protection only keeps the content
+    // out of the capture, while the report is a message the user sends. So a
+    // plugin that removes the protection would leave the report behind, and the
+    // peer would learn about a screenshot of media the plugin claimed was free to
+    // capture. This closure is the switch that keeps the two together.
+
+    /// Whether the client should skip sending "screenshot taken" to the peer.
+    ///
+    /// Checked at every enqueue site, before the service message is built. `nil`
+    /// (nothing wired) and `false` both mean the stock behaviour: the peer is told.
+    public var suppressScreenshotReport: (() -> Bool)?
+
     // MARK: - Appearance
     //
     // The four hooks below are not network interception: they answer "what should
@@ -111,6 +192,28 @@ public final class PluginHookPoints {
     /// The palette is built once per account and then reused by every name, avatar
     /// and ring in the app, so replacing it here reaches all of them at once.
     public var nameColors: ((_ accountId: Int64?) -> PluginNameColorsOverride?)?
+
+    /// Whether a plugin wants this message hidden from a chat history list.
+    ///
+    /// The Android module hid a message by rewriting the list adapter's array
+    /// (`FilterShadowbannedDialogs`, the regex filters and its shadowban cache).
+    /// iOS draws a list from `ChatHistoryEntry` values, so the equivalent is to
+    /// drop an entry before it reaches the list. `messageJSON` is
+    /// `pluginMessageDetailsJSON` output, which is where `sender_id`, `peer_id`
+    /// and `text` come from.
+    ///
+    /// `true` means "do not draw this row". The message is still in the database
+    /// and still in the original view; only the row is hidden, exactly as the
+    /// Android module left the message where it was and hid it from the list.
+    public var hideMessage: ((_ accountId: Int64, _ messageJSON: String) -> Bool)?
+
+    /// Whether any plugin implements `on_hide_message`.
+    ///
+    /// Asked once per history view, before the row loop: `hideMessage` takes an
+    /// already-encoded message, and encoding every visible message only to hear
+    /// "no plugin listens" would put a JSON document per row on the list's
+    /// build path. `nil` (nothing wired) and `false` both mean "stock list".
+    public var wantsHideMessage: (() -> Bool)?
 
     /// Rows of a "message details" screen for `messageJSON`.
     ///
@@ -157,6 +260,50 @@ public struct PluginDetailItem {
     public init(title: String, value: String) {
         self.title = title
         self.value = value
+    }
+}
+
+/// A message a plugin kept after it was deleted.
+///
+/// Everything here comes from the plugin's own storage rather than from the
+/// database: the message is gone, so the row in the chat has to be built from
+/// this description alone.
+public struct PluginStoredMessage {
+    /// The peer the message belongs to, as `PeerId.toInt64()`.
+    public let peerId: Int64
+    /// The original message id, which is what makes the row stable across
+    /// rebuilds of the list and keeps a scroll position from jumping.
+    public let messageId: Int32
+    public let timestamp: Int32
+    public let text: String
+    /// What kind of media the message had, when it had no text.
+    ///
+    /// Answers the row when no `mediaData` was kept: the marker says "there was
+    /// a photo here" rather than drawing an empty bubble that reads as a
+    /// message which was never sent.
+    public let mediaKind: String?
+    /// The message's media, encoded by Postbox and base64'd.
+    ///
+    /// The plugin keeps the bytes in its own file, so the media outlives the
+    /// message being erased from the database and needs no reference counting
+    /// on either side. Decoded with `pluginDecodedMedia(base64:)`; `nil` for a
+    /// message whose media could not be encoded, which then falls back to
+    /// `mediaKind`.
+    public let mediaData: String?
+    /// The author, when the plugin kept one. `nil` for a message with no author
+    /// (a channel post, a deleted account).
+    public let senderId: Int64?
+    public let isOutgoing: Bool
+
+    public init(peerId: Int64, messageId: Int32, timestamp: Int32, text: String, mediaKind: String?, mediaData: String? = nil, senderId: Int64?, isOutgoing: Bool) {
+        self.peerId = peerId
+        self.messageId = messageId
+        self.timestamp = timestamp
+        self.text = text
+        self.mediaKind = mediaKind
+        self.mediaData = mediaData
+        self.senderId = senderId
+        self.isOutgoing = isOutgoing
     }
 }
 
@@ -451,10 +598,12 @@ public let pluginCancelledRequestError: MTRpcError = MTRpcError(errorCode: 406, 
 
 /// Flattens TL request parameters into something `JSONSerialization` accepts.
 ///
-/// Primitive values pass through; everything else becomes its description, which
-/// for a generated `Api.*` value is the constructor name (`peerUser`) rather than
-/// its fields. That is exactly what a plugin can act on, and it cannot leak the
-/// whole object graph into a script.
+/// Primitives pass through, `Api.Bool` becomes a real `true`/`false`, and a nested
+/// TL value becomes an object of its fields (`{"_": "peerUser", "user_id": ...}`).
+/// The field form is what a ported exteraGram plugin expects: the Android runtime
+/// hands its hooks TL objects, and code such as "remember this message before it
+/// is deleted" reads `message.peer_id` and `message.id` off them. The constructor
+/// name alone is not enough for any of that, and it is still available as `_`.
 func pluginRequestParametersJSON(_ parameters: [(String, ConstructorParameterDescription)]) -> String {
     var result: [String: Any] = [:]
     for (name, description) in parameters {
@@ -463,12 +612,19 @@ func pluginRequestParametersJSON(_ parameters: [(String, ConstructorParameterDes
     return pluginJSONString(result)
 }
 
-private func pluginJSONValue(_ value: Any?) -> Any {
+private func pluginJSONValue(_ value: Any?, depth: Int = 0) -> Any {
     switch value {
     case nil, is NSNull:
         return NSNull()
     case let value as String:
         return value
+    // Checked before the TL-object branch: `Api.Bool` is a TL constructor whose
+    // values describe themselves as `boolTrue` / `boolFalse` (see TLObjectSupport),
+    // but a plugin's `request.offline` has to be a real boolean. exteraGram passes
+    // Python's `True`/`False` there, and a ghost mode tests `offline is True`:
+    // handing it the string "boolFalse" made `account.updateStatus(offline=false)`
+    // look like an offline call, so the ghost cancelled going online *and* going
+    // offline, and the user stayed visibly online forever.
     case let value as Bool:
         return value
     case let value as Int:
@@ -481,13 +637,40 @@ private func pluginJSONValue(_ value: Any?) -> Any {
         return value
     case let value as Data:
         return value.base64EncodedString()
+    case let value as Buffer:
+        return value.makeData().base64EncodedString()
     case let value as [Any?]:
-        return value.map { pluginJSONValue($0) }
+        return value.map { pluginJSONValue($0, depth: depth + 1) }
     case let value as [Any]:
-        return value.map { pluginJSONValue($0) }
+        return value.map { pluginJSONValue($0, depth: depth + 1) }
     default:
-        // `CustomStringConvertible` on a generated API value prints the constructor
-        // name only (see TLObjectSupport), so this stays small and stable.
+        if let description = value as? TypeConstructorDescription {
+            let (name, parameters) = description.descriptionFields()
+            if name == "boolTrue" || name == "true" {
+                return true
+            }
+            if name == "boolFalse" || name == "false" {
+                return false
+            }
+            // A nested TL value becomes an object of its fields instead of the
+            // constructor name, so `updateNewMessage` carries a `message` with
+            // `peer_id`, `id` and `message` in it. From here the plugin can do
+            // what the Android module did: remember a message before it is
+            // deleted, and filter by sender. The old string form made every one
+            // of those features impossible, not merely awkward.
+            //
+            // `depth` bounds the walk: a TL tree is finite, but `message` nests
+            // `media`, which nests `document`, and a runaway description must
+            // never stall the request path.
+            if depth >= 8 {
+                return name
+            }
+            var result: [String: Any] = ["_": name]
+            for (fieldName, fieldValue) in parameters {
+                result[fieldName] = pluginJSONValue(fieldValue.value, depth: depth + 1)
+            }
+            return result
+        }
         if let value = value {
             return String(describing: value)
         }
@@ -502,17 +685,13 @@ private func pluginJSONValue(_ value: Any?) -> Any {
 /// `post_request_hook` gets on Android. Anything that cannot describe itself
 /// keeps the constructor-name fallback from `pluginJSONValue`.
 func pluginValueJSON(_ value: Any?) -> String {
-    var result: [String: Any] = [:]
-    if let description = value as? TypeConstructorDescription {
-        let (name, parameters) = description.descriptionFields()
-        result["_"] = name
-        for (fieldName, fieldValue) in parameters {
-            result[fieldName] = pluginJSONValue(fieldValue.value)
-        }
-    } else {
-        result["_"] = pluginJSONValue(value)
+    // Delegates to `pluginJSONValue` so a response and a request parameter are
+    // described the same way: `Api.Bool` answers a real boolean, nested objects
+    // answer their fields, and primitives pass through.
+    if let object = pluginJSONValue(value) as? [String: Any] {
+        return pluginJSONString(object)
     }
-    return pluginJSONString(result)
+    return pluginJSONString(["_": pluginJSONValue(value)])
 }
 
 /// One update as a plugin's `on_update_hook` sees it.

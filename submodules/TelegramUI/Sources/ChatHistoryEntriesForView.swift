@@ -140,6 +140,13 @@ func chatHistoryEntriesForView(
         }
     }
     
+    // Asked once, before the loop. `hideMessage` takes an already encoded
+    // message, and encoding every visible row only to be told that no plugin
+    // listens would put a JSON document per row on the list's build path. With
+    // no listener both closures are `nil`/`false` and this file behaves exactly
+    // as stock.
+    let pluginsMayHideMessages = PluginHookPoints.shared.wantsHideMessage?() == true
+
     var count = 0
     loop: for entry in view.entries {
         var message = entry.message.withAppliedEphemeralReplacementMessage()
@@ -217,6 +224,17 @@ func chatHistoryEntriesForView(
             if minAutoremoveOrClearTimeout <= 60 {
                 continue loop
             }
+        }
+
+        // A plugin can hide a row: that is how the re:extera module's shadow ban
+        // and its regex filters reach this client. The check runs after the
+        // built-in skips and before anything is built for the row, so a hidden
+        // message costs one JSON encode and no entry. `hideMessage` is `nil`
+        // when no plugin listens, which is the common case.
+        if pluginsMayHideMessages,
+           let hideMessage = PluginHookPoints.shared.hideMessage,
+           hideMessage(context.account.id.int64, pluginMessageDetailsJSON(message)) {
+            continue loop
         }
         
         var contentTypeHint: ChatMessageEntryContentType = .generic
@@ -866,6 +884,158 @@ func chatHistoryEntriesForView(
         }
     }
     
+    // Rows a plugin kept after the message was deleted.
+    //
+    // The message is gone from the database, so the list cannot be asked for it;
+    // the plugin's own copy is the only source. The row is built here, marked
+    // `isDeleted` so the date/status line draws the marker, and placed by its
+    // original timestamp among the live rows.
+    //
+    // Only the loaded window is filled: a saved message older than `earlierId`
+    // is not in the list yet, and inserting it at the top would put a row from
+    // months ago above the messages the user actually scrolled to. Once the
+    // window reaches it, the next build inserts it in place.
+    if !isMusicPlaylist, location.threadId == nil, let peerId = location.peerId, !view.isLoading,
+       PluginHookPoints.shared.wantsDeletedMessages?() == true,
+       let deletedMessages = PluginHookPoints.shared.deletedMessages {
+        let storedMessages = deletedMessages(context.account.id.int64, peerId.toInt64())
+        if !storedMessages.isEmpty {
+            // A saved copy of a message that is still in the chat would be a
+            // second, identical row. Compared by raw id rather than by
+            // `MessageId`: a live message is in the cloud namespace and the
+            // saved row is placed in the local one.
+            var liveMessageIds = Set<Int32>()
+            for entry in view.entries where entry.message.id.peerId == peerId {
+                liveMessageIds.insert(entry.message.id.id)
+            }
+
+            for storedMessage in storedMessages {
+                // A copy of a message that is still in the chat would be a
+                // second, identical row, and one outside the loaded window is
+                // not drawn at all. Both are settled before the media is
+                // decoded: this loop runs on every rebuild of the list, and
+                // decoding a file description per stored message would put that
+                // work on the list's build path for rows nobody will see.
+                let messageId = MessageId(peerId: peerId, namespace: Namespaces.Message.Local, id: storedMessage.messageId)
+                if liveMessageIds.contains(storedMessage.messageId) {
+                    continue
+                }
+                let index = MessageIndex(id: messageId, timestamp: storedMessage.timestamp)
+                if let earlierId = view.earlierId, index < earlierId {
+                    continue
+                }
+                if let laterId = view.laterId, index > laterId {
+                    continue
+                }
+
+                // The media the plugin kept, if it managed to store one. A
+                // sticker, photo or video comes back as the same object the
+                // message carried, so the row is drawn by its ordinary node
+                // instead of showing a marker.
+                var storedMedia: [Media] = []
+                if let media = pluginDecodedMedia(base64: storedMessage.mediaData) {
+                    storedMedia.append(media)
+                }
+
+                // A copy with neither text, nor media, nor a marker has nothing
+                // to show: an empty bubble would read as a message that was
+                // never sent. The plugin's own list drops such an entry too.
+                let displayText: String
+                if !storedMessage.text.isEmpty {
+                    displayText = storedMessage.text
+                } else if !storedMedia.isEmpty {
+                    // The media is drawn, so a caption is not needed. An empty
+                    // text is what a media-only message has anyway.
+                    displayText = ""
+                } else if let mediaKind = storedMessage.mediaKind {
+                    // No stored bytes (an older entry, or media that could not
+                    // be encoded): the kind is all that is left to show.
+                    displayText = "[" + mediaKind + "]"
+                } else {
+                    continue
+                }
+
+                var author: Peer?
+                if let senderId = storedMessage.senderId, senderId != 0 {
+                    let senderPeerId = PeerId(senderId)
+                    if let peer = cachedPeerDataPeers[senderPeerId] {
+                        author = peer
+                    } else if let chatPeer, chatPeer.id == senderPeerId {
+                        author = chatPeer
+                    }
+                }
+                var peers = SimpleDictionary<PeerId, Peer>()
+                if let chatPeer {
+                    peers[chatPeer.id] = chatPeer
+                }
+                if let author {
+                    peers[author.id] = author
+                }
+
+                // The same id derivation `MessageUtils` uses: it only has to
+                // stay put inside one run, which is how a scroll position
+                // survives a rebuild.
+                var hasher = Hasher()
+                hasher.combine(storedMessage.messageId)
+                hasher.combine(peerId)
+                let hashValue = Int64(hasher.finalize())
+                let first = UInt32((hashValue >> 32) & 0xffffffff)
+                let second = UInt32(hashValue & 0xffffffff)
+                let stableId = first &+ second
+
+                let message = Message(
+                    stableId: stableId,
+                    stableVersion: 0,
+                    id: messageId,
+                    globallyUniqueId: nil,
+                    groupingKey: nil,
+                    groupInfo: nil,
+                    threadId: nil,
+                    timestamp: storedMessage.timestamp,
+                    flags: storedMessage.isOutgoing ? [] : [.Incoming],
+                    tags: [],
+                    globalTags: [],
+                    localTags: [],
+                    customTags: [],
+                    forwardInfo: nil,
+                    author: author,
+                    text: displayText,
+                    attributes: [PluginDeletedMessageAttribute()],
+                    media: storedMedia,
+                    peers: peers,
+                    associatedMessages: SimpleDictionary<MessageId, Message>(),
+                    associatedMessageIds: [],
+                    associatedMedia: [:],
+                    associatedThreadInfo: nil,
+                    associatedStories: [:]
+                )
+
+                var attributes = ChatMessageEntryAttributes(rank: nil, isContact: false, contentTypeHint: .generic, updatingMedia: nil, isPlaying: false, isCentered: false, authorStoryStats: nil, displayContinueThreadFooter: false, pinToTop: false)
+                attributes.isDeleted = true
+
+                // Selectable like any other row: the user has to be able to pick
+                // a saved copy and delete it. Otherwise the row is drawn and
+                // nothing can be done with it. Outside selection mode the row
+                // shows `.none`, exactly as a live message does.
+                let selection: ChatHistoryMessageSelection
+                if let selectedMessages {
+                    selection = .selectable(selected: selectedMessages.contains(messageId), num: nil)
+                } else {
+                    selection = .none
+                }
+
+                var insertAtPosition = entries.count
+                for i in 0 ..< entries.count {
+                    if entries[i].index > message.index {
+                        insertAtPosition = i
+                        break
+                    }
+                }
+                entries.insert(.MessageEntry(message, presentationData, true, nil, selection, attributes), at: insertAtPosition)
+            }
+        }
+    }
+
     if isMusicPlaylist && entries.count == 1 {
         return ([], currentState)
     }

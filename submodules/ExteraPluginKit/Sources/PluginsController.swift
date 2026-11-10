@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import Display
 import AccountContext
+import TelegramCore
 import TelegramPresentationData
 import PresentationDataUtils
 import SwiftSignalKit
@@ -18,24 +19,36 @@ import ItemListUI
 /// only a signal push.
 
 private enum PluginsSection: Int32 {
+    case safeMode
     case plugins
+    case crashReports
     case log
 }
 
 private enum PluginsControllerEntry: ItemListNodeEntry {
+    case safeModeHeader
+    case safeModeSwitch(isOn: Bool)
+    case safeModeFooter(summary: String?)
     case pluginsHeader
-    case plugin(index: Int, summary: PluginManager.PluginSummary)
+    case plugin(index: Int, summary: PluginManager.PluginSummary, safeMode: Bool)
     case pluginsEmpty
     case install
     case pluginsFooter
+    case crashReportsHeader
+    case crashReportsValue
+    case crashReportsFooter
     case logHeader
     case logValue
     case logFooter
 
     var section: ItemListSectionId {
         switch self {
+        case .safeModeHeader, .safeModeSwitch, .safeModeFooter:
+            return PluginsSection.safeMode.rawValue
         case .pluginsHeader, .plugin, .pluginsEmpty, .install, .pluginsFooter:
             return PluginsSection.plugins.rawValue
+        case .crashReportsHeader, .crashReportsValue, .crashReportsFooter:
+            return PluginsSection.crashReports.rawValue
         case .logHeader, .logValue, .logFooter:
             return PluginsSection.log.rawValue
         }
@@ -43,22 +56,34 @@ private enum PluginsControllerEntry: ItemListNodeEntry {
 
     var stableId: Int32 {
         switch self {
-        case .pluginsHeader:
+        case .safeModeHeader:
             return 0
-        case let .plugin(index, _):
-            return 1 + Int32(index)
+        case .safeModeSwitch:
+            return 1
+        case .safeModeFooter:
+            return 2
+        case .pluginsHeader:
+            return 10
+        case let .plugin(index, _, _):
+            return 11 + Int32(index)
         case .pluginsEmpty:
             return 9000
         case .install:
             return 9001
         case .pluginsFooter:
             return 9002
+        case .crashReportsHeader:
+            return 9100
+        case .crashReportsValue:
+            return 9101
+        case .crashReportsFooter:
+            return 9102
         case .logHeader:
-            return 9003
+            return 9200
         case .logValue:
-            return 9004
+            return 9201
         case .logFooter:
-            return 9005
+            return 9202
         }
     }
 
@@ -69,9 +94,30 @@ private enum PluginsControllerEntry: ItemListNodeEntry {
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
         let arguments = arguments as! PluginsControllerArguments
         switch self {
+        case .safeModeHeader:
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: "Safe Mode", sectionId: self.section)
+        case let .safeModeSwitch(isOn):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "Safe Mode",
+                text: isOn ? "All plugins are disabled" : "Plugins are allowed to load",
+                value: isOn,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { value in
+                    arguments.setSafeMode(value)
+                }
+            )
+        case let .safeModeFooter(summary):
+            var text = "One switch for every plugin. When a plugin crashes the client, Safe Mode turns on automatically on the next launch, before any plugin code runs. Turn it off to load the plugins again."
+            if let summary = summary, !summary.isEmpty {
+                text += "\n\nLast crash: \(summary)"
+            }
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case .pluginsHeader:
             return ItemListSectionHeaderItem(presentationData: presentationData, text: "Plugins", sectionId: self.section)
-        case let .plugin(_, summary):
+        case let .plugin(_, summary, safeMode):
             // The row is the switch and the way in at the same time, which is
             // what exteraGram's list does: the checkbox turns the plugin on and
             // off without opening anything, and a tap anywhere else opens its
@@ -91,12 +137,16 @@ private enum PluginsControllerEntry: ItemListNodeEntry {
             if summary.isEnabled, let loadError = summary.loadError {
                 detail = loadError
             }
+            if safeMode {
+                detail = "Disabled by Safe Mode"
+            }
             return ItemListSwitchItem(
                 presentationData: presentationData,
                 systemStyle: .glass,
                 title: summary.name,
                 text: detail,
                 value: summary.isEnabled,
+                enabled: !safeMode,
                 sectionId: self.section,
                 style: .blocks,
                 updated: { value in
@@ -122,6 +172,25 @@ private enum PluginsControllerEntry: ItemListNodeEntry {
             )
         case .pluginsFooter:
             return ItemListTextItem(presentationData: presentationData, text: .plain("Plugins are JavaScript (.plugin or .js) files written against exteraGram's plugin API. “Install Plugin…” opens the system file picker; the chosen file is checked and copied into the app's private folder, which no other app can read. Files.app does not show that folder, so this picker is the only way to get a plugin in."), sectionId: self.section)
+        case .crashReportsHeader:
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: "Crash Reports", sectionId: self.section)
+        case .crashReportsValue:
+            return ItemListDisclosureItem(
+                presentationData: presentationData,
+                systemStyle: .glass,
+                title: "View Crash Reports",
+                label: "",
+                labelStyle: .text,
+                additionalDetailLabel: "Only when a session ended unexpectedly",
+                sectionId: self.section,
+                style: .blocks,
+                disclosureStyle: .arrow,
+                action: {
+                    arguments.openCrashLog()
+                }
+            )
+        case .crashReportsFooter:
+            return ItemListTextItem(presentationData: presentationData, text: .plain("A crash report is written only when the previous session ended without reaching the background handler. It contains the crash type, the last plugin activity, the exception or call stack, and a short context excerpt — not a copy of the live plugin log. The full live log is under Log."), sectionId: self.section)
         case .logHeader:
             return ItemListSectionHeaderItem(presentationData: presentationData, text: "Log", sectionId: self.section)
         case .logValue:
@@ -139,7 +208,7 @@ private enum PluginsControllerEntry: ItemListNodeEntry {
                 }
             )
         case .logFooter:
-            return ItemListTextItem(presentationData: presentationData, text: .plain("Log lines from every plugin, newest last. Useful when a plugin does not behave as expected."), sectionId: self.section)
+            return ItemListTextItem(presentationData: presentationData, text: .plain("Log lines from every plugin, newest last. This is the live diagnostic log; crash reports are kept separately under Crash Reports."), sectionId: self.section)
         }
     }
 }
@@ -147,18 +216,22 @@ private enum PluginsControllerEntry: ItemListNodeEntry {
 private final class PluginsControllerArguments {
     let openPlugin: (String) -> Void
     let openLog: () -> Void
+    let openCrashLog: () -> Void
     let installPlugin: () -> Void
     let setPluginEnabled: (String, Bool) -> Void
+    let setSafeMode: (Bool) -> Void
     /// The signal that builds the rows captures these arguments, so the plugin
     /// manager's change notifications keep rebuilding the list while the screen
     /// is open. `deinit` unsubscribes once the controller is gone.
     private let changesDisposable: Disposable
 
-    init(openPlugin: @escaping (String) -> Void, openLog: @escaping () -> Void, installPlugin: @escaping () -> Void, setPluginEnabled: @escaping (String, Bool) -> Void, changesDisposable: Disposable) {
+    init(openPlugin: @escaping (String) -> Void, openLog: @escaping () -> Void, openCrashLog: @escaping () -> Void, installPlugin: @escaping () -> Void, setPluginEnabled: @escaping (String, Bool) -> Void, setSafeMode: @escaping (Bool) -> Void, changesDisposable: Disposable) {
         self.openPlugin = openPlugin
         self.openLog = openLog
+        self.openCrashLog = openCrashLog
         self.installPlugin = installPlugin
         self.setPluginEnabled = setPluginEnabled
+        self.setSafeMode = setSafeMode
         self.changesDisposable = changesDisposable
     }
 
@@ -167,17 +240,23 @@ private final class PluginsControllerArguments {
     }
 }
 
-private func pluginsControllerEntries(installed: [PluginManager.PluginSummary]) -> [PluginsControllerEntry] {
+private func pluginsControllerEntries(installed: [PluginManager.PluginSummary], safeMode: Bool) -> [PluginsControllerEntry] {
     var entries: [PluginsControllerEntry] = []
+    entries.append(.safeModeHeader)
+    entries.append(.safeModeSwitch(isOn: safeMode))
+    entries.append(.safeModeFooter(summary: PluginCrashGuard.shared.lastCrashSummary))
     entries.append(.pluginsHeader)
     for (index, summary) in installed.enumerated() {
-        entries.append(.plugin(index: index, summary: summary))
+        entries.append(.plugin(index: index, summary: summary, safeMode: safeMode))
     }
     if installed.isEmpty {
         entries.append(.pluginsEmpty)
     }
     entries.append(.install)
     entries.append(.pluginsFooter)
+    entries.append(.crashReportsHeader)
+    entries.append(.crashReportsValue)
+    entries.append(.crashReportsFooter)
     entries.append(.logHeader)
     entries.append(.logValue)
     entries.append(.logFooter)
@@ -217,6 +296,9 @@ public func pluginsController(context: AccountContext) -> ViewController {
         openLog: {
             pushPluginController(context: context, from: host, controller: pluginLogController(context: context))
         },
+        openCrashLog: {
+            pushPluginController(context: context, from: host, controller: pluginCrashLogController(context: context))
+        },
         installPlugin: {
             // The importer outlives this closure: `UIDocumentPickerViewController`
             // holds its delegate weakly, so `PluginFileImporter` keeps a reference
@@ -237,6 +319,9 @@ public func pluginsController(context: AccountContext) -> ViewController {
             PluginStore.shared.setEnabled(enabled, pluginId: pluginId)
             PluginManager.shared.reloadPlugins()
         },
+        setSafeMode: { enabled in
+            PluginManager.shared.setSafeModeEnabled(enabled)
+        },
         changesDisposable: changesDisposable
     )
 
@@ -255,7 +340,7 @@ public func pluginsController(context: AccountContext) -> ViewController {
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: pluginsControllerEntries(installed: manager.installedPlugins()),
+            entries: pluginsControllerEntries(installed: manager.installedPlugins(), safeMode: manager.isSafeModeEnabled),
             style: .blocks,
             animateChanges: true
         )
@@ -283,9 +368,12 @@ public func pluginsController(context: AccountContext) -> ViewController {
 /// settings page. The overlay stays as a fallback for the case where the manager
 /// is on screen without a stack (nothing else presents it, but a plugin can).
 private func pushPluginController(context: AccountContext, from host: PluginsControllerHost, controller: ViewController) {
-    controller.navigationPresentation = .modal
-    if let container = host.controller, container.navigationController is NavigationController {
-        container.push(controller)
+    // Pushed, not presented: the plugin page joins the same navigation stack the
+    // list lives in, so the bar gets a back arrow from `previousItem` and a
+    // second push from that page keeps appending instead of opening a fresh
+    // modal container. `.modal` here was what made each step its own sheet.
+    if let container = host.controller, let stack = container.navigationController {
+        stack.pushViewController(controller, animated: true)
     } else {
         context.sharedContext.presentGlobalController(controller, nil)
     }
@@ -464,6 +552,13 @@ private final class PluginSettingsControllerArguments {
     let openSubPage: (String, String) -> Void
     let reload: () -> Void
     let remove: () -> Void
+    /// The rows were built from the plugin's `create_settings()`, which is only
+    /// re-run when the page is rebuilt. A switch that saves on its own — a
+    /// callback writing a second key, a page whose content depends on another
+    /// switch — would otherwise leave the row showing the old value, so the page
+    /// listens for its own plugin's saves and bumps. Held here so it is disposed
+    /// together with the controller that owns these arguments.
+    private let settingsDisposable: Disposable
 
     init(
         updateValue: @escaping (String, Any?) -> Void,
@@ -471,7 +566,8 @@ private final class PluginSettingsControllerArguments {
         clickRow: @escaping (String, Bool) -> Void,
         openSubPage: @escaping (String, String) -> Void,
         reload: @escaping () -> Void,
-        remove: @escaping () -> Void
+        remove: @escaping () -> Void,
+        settingsDisposable: Disposable
     ) {
         self.updateValue = updateValue
         self.presentSelector = presentSelector
@@ -479,6 +575,11 @@ private final class PluginSettingsControllerArguments {
         self.openSubPage = openSubPage
         self.reload = reload
         self.remove = remove
+        self.settingsDisposable = settingsDisposable
+    }
+
+    deinit {
+        self.settingsDisposable.dispose()
     }
 }
 
@@ -487,7 +588,7 @@ private final class PluginSettingsControllerArguments {
 /// Shared by the plugin's own page and by any page opened from it, so a nested
 /// page renders exactly like the top level. `startIndex` only shifts the stable
 /// ids, which have to stay unique (and ascending) within one list.
-private func pluginControlEntries(controls: [PluginManager.SettingsControl], startIndex: Int) -> [PluginSettingsEntry] {
+private func pluginControlEntries(controls: [PluginManager.SettingsControl], startIndex: Int, subControls: (String) -> [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
     var entries: [PluginSettingsEntry] = []
     var index = startIndex
     for control in controls {
@@ -536,11 +637,24 @@ private func pluginControlEntries(controls: [PluginManager.SettingsControl], sta
             ))
         case "text", "custom":
             // Three shapes reach here: a row that opens another page, a row that
-            // runs a callback, and a plain caption. `has_sub_fragment` wins,
-            // because exteraGram's builder asks for the page on tap and would
-            // otherwise have its click dropped.
+            // runs a callback, and a plain caption. The page question is answered
+            // by asking the plugin for the page itself rather than by trusting
+            // `has_sub_fragment`: that flag is built by the bootstrap, and when it
+            // is missing the row silently degrades to a caption and the tap does
+            // nothing, which is indistinguishable from "the section does not
+            // open". Asking costs one script call per keyed caption row, which is
+            // what the tap would have cost anyway.
             let title = control.text ?? control.subtext ?? ""
-            if control.hasSubFragment, let key = control.key {
+            var opensPage = control.hasSubFragment
+            if !opensPage, let key = control.key, !control.hasClick, !control.hasLongClick {
+                opensPage = !subControls(key).isEmpty
+            }
+            if opensPage, let key = control.key {
+                // Says which rows the renderer recognised as pages. Without this
+                // line a row that silently became a caption is indistinguishable
+                // from a page that failed to open, and the two have nothing in
+                // common: one is a bridge problem, the other a navigation one.
+                PluginLog.write(pluginId: "plugins-ui", text: "subpage row: key=\(key) title=\(title)")
                 entries.append(.subPage(index: index, key: key, title: title, subtitle: control.subtext))
             } else if let key = control.key, control.hasClick || control.hasLongClick {
                 // A list row only reports a tap, so a `on_long_click`-only row
@@ -566,7 +680,7 @@ private func pluginControlEntries(controls: [PluginManager.SettingsControl], sta
     return entries
 }
 
-private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], loadError: String?) -> [PluginSettingsEntry] {
+private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], loadError: String?, subControls: (String) -> [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
     var entries: [PluginSettingsEntry] = []
     if let loadError = loadError {
         // A plugin that did not load has no settings to show, and saying only
@@ -574,7 +688,7 @@ private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], lo
         entries.append(.note(index: 0, text: "This plugin failed to load: \(loadError)"))
     }
 
-    let controlEntries = pluginControlEntries(controls: controls, startIndex: entries.count)
+    let controlEntries = pluginControlEntries(controls: controls, startIndex: entries.count, subControls: subControls)
     entries.append(contentsOf: controlEntries)
     if controlEntries.isEmpty && loadError == nil {
         entries.append(.empty)
@@ -584,8 +698,8 @@ private func pluginSettingsEntries(controls: [PluginManager.SettingsControl], lo
     return entries
 }
 
-private func pluginSubSettingsEntries(controls: [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
-    let entries = pluginControlEntries(controls: controls, startIndex: 0)
+private func pluginSubSettingsEntries(controls: [PluginManager.SettingsControl], subControls: (String) -> [PluginManager.SettingsControl]) -> [PluginSettingsEntry] {
+    let entries = pluginControlEntries(controls: controls, startIndex: 0, subControls: subControls)
     if entries.isEmpty {
         return [.empty]
     }
@@ -605,6 +719,16 @@ private final class PluginSettingsHost {
 private func pluginSettingsArguments(context: AccountContext, pluginId: String, bump: @escaping () -> Void, host: PluginSettingsHost) -> PluginSettingsControllerArguments {
     let manager = PluginManager.shared
     let store = PluginStore.shared
+    // Only this plugin's saves: a page of another plugin is not affected, and a
+    // rebuild on every save of every plugin would lose the scroll position for
+    // no reason. Delivered on the main queue because `setSetting` can be called
+    // from a callback that the script queue runs.
+    let settingsDisposable = (manager.settingsChanged
+    |> deliverOnMainQueue).start(next: { changedId in
+        if changedId == pluginId {
+            bump()
+        }
+    })
     return PluginSettingsControllerArguments(
         updateValue: { key, value in
             manager.setSetting(pluginId: pluginId, key: key, value: value)
@@ -635,7 +759,28 @@ private func pluginSettingsArguments(context: AccountContext, pluginId: String, 
             manager.invokeSettingClick(pluginId: pluginId, key: key, long: long)
         },
         openSubPage: { key, title in
-            host.controller?.push(pluginSubSettingsController(context: context, pluginId: pluginId, parentKey: key, title: title))
+            // Two separate failures look identical from the outside: the tap
+            // never reaches this closure, or it does and there is no stack to
+            // push onto. The line tells them apart on a sideloaded build, where
+            // there is no debugger to ask.
+            let presented = host.controller
+            let stack = presented?.navigationController
+            PluginLog.write(pluginId: pluginId, text: "openSubPage: key=\(key) host=\(presented != nil ? "live" : "gone") stack=\(stack != nil ? "yes" : "no")")
+            let page = pluginSubSettingsController(context: context, pluginId: pluginId, parentKey: key, title: title)
+            if let stack = stack {
+                // Any `UINavigationController` will do, not only the app's own
+                // `NavigationController`: the plugin list is also reachable
+                // through a plain one (a `link_alias` row opens it inside a
+                // `UINavigationController` presented over the window), and
+                // demanding the app's subclass sent every tap on a section in
+                // that screen to the overlay instead of onto the stack.
+                stack.pushViewController(page, animated: true)
+            } else {
+                // No stack to push onto: the list is either not on screen any
+                // more or was opened in an overlay. Falling back to the global
+                // overlay still shows the page; it just has no back arrow.
+                context.sharedContext.presentGlobalController(page, nil)
+            }
         },
         reload: {
             manager.reloadPlugins()
@@ -645,7 +790,8 @@ private func pluginSettingsArguments(context: AccountContext, pluginId: String, 
             store.remove(pluginId: pluginId)
             manager.reloadPlugins()
             bump()
-        }
+        },
+        settingsDisposable: settingsDisposable
     )
 }
 
@@ -683,7 +829,8 @@ public func pluginSettingsController(context: AccountContext, pluginId: String) 
             presentationData: ItemListPresentationData(presentationData),
             entries: pluginSettingsEntries(
                 controls: manager.settings(for: pluginId),
-                loadError: summary?.loadError
+                loadError: summary?.loadError,
+                subControls: { key in manager.subSettings(for: pluginId, parentKey: key) }
             ),
             style: .blocks,
             animateChanges: true
@@ -692,7 +839,6 @@ public func pluginSettingsController(context: AccountContext, pluginId: String) 
     }
 
     let controller = ItemListController(context: context, state: signal)
-    controller.navigationPresentation = .modal
     host.controller = controller
     return controller
 }
@@ -719,6 +865,9 @@ private func pluginSubSettingsController(context: AccountContext, pluginId: Stri
     let host = PluginSettingsHost()
     let arguments = pluginSettingsArguments(context: context, pluginId: pluginId, bump: bump, host: host)
 
+    let subControls = manager.subSettings(for: pluginId, parentKey: parentKey)
+    PluginLog.write(pluginId: pluginId, text: "subpage built: key=\(parentKey) controls=\(subControls.count)")
+
     let signal = combineLatest(
         context.sharedContext.presentationData,
         statePromise.get()
@@ -734,7 +883,10 @@ private func pluginSubSettingsController(context: AccountContext, pluginId: Stri
         )
         let listState = ItemListNodeState(
             presentationData: ItemListPresentationData(presentationData),
-            entries: pluginSubSettingsEntries(controls: manager.subSettings(for: pluginId, parentKey: parentKey)),
+            entries: pluginSubSettingsEntries(
+                controls: manager.subSettings(for: pluginId, parentKey: parentKey),
+                subControls: { key in manager.subSettings(for: pluginId, parentKey: key) }
+            ),
             style: .blocks,
             animateChanges: true
         )
@@ -742,7 +894,6 @@ private func pluginSubSettingsController(context: AccountContext, pluginId: Stri
     }
 
     let controller = ItemListController(context: context, state: signal)
-    controller.navigationPresentation = .modal
     host.controller = controller
     return controller
 }
@@ -823,6 +974,91 @@ public func pluginLogController(context: AccountContext) -> ViewController {
     }
 
     let controller = ItemListController(context: context, state: signal)
-    controller.navigationPresentation = .modal
+    return controller
+}
+
+// MARK: - Crash log viewer
+
+private enum PluginCrashLogEntry: ItemListNodeEntry {
+    case intro
+    case empty
+    case line(index: Int, text: String)
+    case clear
+
+    var section: ItemListSectionId {
+        switch self {
+        case .clear:
+            return 1
+        default:
+            return 0
+        }
+    }
+
+    var stableId: Int32 {
+        switch self {
+        case .intro:
+            return 0
+        case .empty:
+            return 1
+        case let .line(index, _):
+            return Int32(index) + 10
+        case .clear:
+            return 1000000
+        }
+    }
+
+    static func < (lhs: PluginCrashLogEntry, rhs: PluginCrashLogEntry) -> Bool {
+        return lhs.stableId < rhs.stableId
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        switch self {
+        case .intro:
+            return ItemListTextItem(presentationData: presentationData, text: .plain("Crash reports only. A report is written when the previous session ended unexpectedly, before the client could reach its background handler. The live plugin log is under Log → Show Log."), sectionId: self.section)
+        case .empty:
+            return ItemListTextItem(presentationData: presentationData, text: .plain("No crash reports have been recorded."), sectionId: self.section)
+        case let .line(_, text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case .clear:
+            return ItemListActionItem(presentationData: presentationData, title: "Clear Crash Reports", kind: .destructive, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+                PluginCrashGuard.shared.clearLog()
+            })
+        }
+    }
+}
+
+public func pluginCrashLogController(context: AccountContext) -> ViewController {
+    let signal = context.sharedContext.presentationData
+    |> deliverOnMainQueue
+    |> map { presentationData -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let lines = PluginCrashGuard.shared.logText()
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        var entries: [PluginCrashLogEntry] = [.intro]
+        if lines.count <= 1 && lines.first?.isEmpty == true {
+            entries.append(.empty)
+        } else {
+            for (index, line) in lines.enumerated() {
+                entries.append(.line(index: index, text: line))
+            }
+        }
+        entries.append(.clear)
+        let controllerState = ItemListControllerState(
+            presentationData: ItemListPresentationData(presentationData),
+            title: .text("Crash Reports"),
+            leftNavigationButton: nil,
+            rightNavigationButton: nil,
+            backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back)
+        )
+        let listState = ItemListNodeState(
+            presentationData: ItemListPresentationData(presentationData),
+            entries: entries,
+            style: .plain,
+            animateChanges: false
+        )
+        return (controllerState, (listState, ()))
+    }
+
+    let controller = ItemListController(context: context, state: signal)
     return controller
 }

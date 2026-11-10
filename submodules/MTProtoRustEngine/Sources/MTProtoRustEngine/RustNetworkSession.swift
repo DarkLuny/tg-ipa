@@ -83,6 +83,8 @@ final class RustNetworkSession: NetworkEngineSession, RustEngineEventHandler {
     private let isStopped = Atomic<Bool>(value: false)
     private var handle: MTSessionHandle = 0
     private var logPrefix: String
+    /// Set while the plugin's route is watched, so a change reaches a running session.
+    private var tgWsProxyObserver: NSObjectProtocol?
 
     private var pendingById: [UInt64: RustPendingRequest] = [:]
     private var activeRequests: [RustPendingRequest] = []
@@ -262,7 +264,18 @@ final class RustNetworkSession: NetworkEngineSession, RustEngineEventHandler {
             if let engine = self.engine, !self.isCdn {
                 mt_session_set_transport(engine, handle, UInt8(MTTransportAuto), self.httpPort)
                 if #available(macOS 10.14, iOS 12.0, *) {
-                    RustNetworkSession.setWebEndpoint(engine: engine, handle: handle, isTestingEnvironment: context.isTestingEnvironment)
+                    RustNetworkSession.setWebEndpoint(engine: engine, handle: handle, isTestingEnvironment: context.isTestingEnvironment, datacenterId: datacenterId)
+                    TgWsProxyConfig.recordApplied(host: TgWsProxyConfig.host(datacenterId: datacenterId) ?? "", datacenterId: datacenterId)
+                    // The plugin can be switched on or off at any time; follow it,
+                    // so the running client takes the new route without a restart.
+                    self.tgWsProxyObserver = NotificationCenter.default.addObserver(forName: TgWsProxyConfig.didChangeNotification, object: nil, queue: nil, using: { [weak self] _ in
+                        guard let self = self else {
+                            return
+                        }
+                        self.queue.async {
+                            self.reapplyWebEndpoint()
+                        }
+                    })
                 }
             }
         }
@@ -292,9 +305,25 @@ final class RustNetworkSession: NetworkEngineSession, RustEngineEventHandler {
 
     private func teardown() {
         let _ = self.exportable.swap(false)
+        if let observer = self.tgWsProxyObserver {
+            self.tgWsProxyObserver = nil
+            NotificationCenter.default.removeObserver(observer)
+        }
         self.registry.unregister(self)
         self.runtime.destroySession(handle: self.handle)
         self.context.remove(self.listener)
+    }
+
+    /// Only on `queue`. The plugin's document changed while the app runs: hand
+    /// the engine the new front, or Telegram's own when it was switched off.
+    private func reapplyWebEndpoint() {
+        guard !self.isStopped.with({ $0 }), !self.isCdn, self.handle != 0, let engine = self.engine else {
+            return
+        }
+        if #available(macOS 10.14, iOS 12.0, *) {
+            RustNetworkSession.setWebEndpoint(engine: engine, handle: self.handle, isTestingEnvironment: self.context.isTestingEnvironment, datacenterId: self.datacenterId)
+            TgWsProxyConfig.recordApplied(host: TgWsProxyConfig.host(datacenterId: self.datacenterId) ?? "", datacenterId: self.datacenterId)
+        }
     }
 
     /// A running main session: the account's authorization can be exported through it.
@@ -1889,7 +1918,20 @@ extension RustNetworkSession {
 
     static var webEndpointOverride: (host: String, port: UInt16, path: String, wsPath: String, address: String)?
 
-    static func setWebEndpoint(engine: OpaquePointer, handle: MTSessionHandle, isTestingEnvironment: Bool) {
+    static func setWebEndpoint(engine: OpaquePointer, handle: MTSessionHandle, isTestingEnvironment: Bool, datacenterId: Int) {
+        // `tg_ws_proxy.plugin` can ask for a CloudFlare-fronted front instead of
+        // Telegram's own `kws<dc>.web.telegram.org`. This is the same call its
+        // tests make with `webEndpointOverride`, with the host built per
+        // datacenter because the front's name carries the datacenter.
+        if !isTestingEnvironment, datacenterId > 0, datacenterId < 1000, let host = TgWsProxyConfig.host(datacenterId: datacenterId) {
+            let arena = RustEngineArena()
+            var endpoint = MTWebEndpoint(host: arena.string(host), port: 443, path: arena.string("/apiw1"), address: arena.string(host), ws_path: arena.string("/apiws"))
+            withExtendedLifetime(arena) {
+                mt_session_set_web_endpoint(engine, handle, &endpoint)
+            }
+            rustEngineLog("[MTProtoRust#\(handle) dc\(datacenterId)] web endpoint \(host)")
+            return
+        }
         guard let override = RustNetworkSession.webEndpointOverride else {
             mt_session_use_telegram_web(engine, handle, isTestingEnvironment ? 1 : 0)
             return
