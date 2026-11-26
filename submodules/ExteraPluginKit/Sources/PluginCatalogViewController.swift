@@ -332,7 +332,7 @@ public final class PluginCatalogViewController: UITableViewController {
     private func showError(_ error: Error) {
         let alert = UIAlertController(
             title: "Catalog error",
-            message: error.description,
+            message: error.localizedDescription,
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "OK", style: .default))
