@@ -36,7 +36,7 @@ public func renderedUnmutedUnreadCount(accountManager: AccountManager<TelegramAc
         }
         return totalReadCounters.count(for: .filtered, in: inAppSettings.totalUnreadCountDisplayCategory.statsType, with: inAppSettings.totalUnreadCountIncludeTags)
     }
-    |> distinctUntilChanged()
+    |> distinctUntilChanged
 }
 
 public func renderedTotalUnreadCount(accountManager: AccountManager<TelegramAccountManagerTypes>, engine: TelegramEngine) -> Signal<(Int32, RenderedTotalUnreadCountType), NoError> {
