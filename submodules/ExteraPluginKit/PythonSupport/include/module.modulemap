@@ -1,0 +1,5 @@
+module ExteraPython {
+    header "PluginPython.h"
+    header "PluginInvocation.h"
+    export *
+}

@@ -1,0 +1,45 @@
+﻿from base_plugin import BasePlugin, HookResult, HookStrategy, AppEvent
+from client_utils import send_text, get_client
+from ui import settings
+from ui.bulletin import BulletinHelper
+
+__id__ = "hello_ios"
+__name__ = "Hello iOS"
+__description__ = "A minimal exteraGram plugin that also runs on Telegram-iOS."
+__author__ = "example"
+__version__ = "1.0"
+__icon__ = "exteraPlugins/1"
+__app_version__ = ">=13.2.1"
+__sdk_version__ = ">=1.4.6.5"
+
+COMMAND = "/hello"
+
+
+class HelloIOS(BasePlugin):
+    def on_plugin_load(self):
+        self.log("loaded, account is %s" % get_client().account)
+
+    def create_settings(self):
+        return [
+            settings.Header("Behaviour"),
+            settings.Switch("confirm", "Ask before replying", False),
+            settings.Input("greeting", "Greeting", "Hello from iOS"),
+            settings.Selector("target", "Reply target", 0, ["Saved Messages", "Current chat"]),
+            settings.Text("About", "Hello iOS", on_click=self.on_about),
+        ]
+
+    def on_about(self, view):
+        BulletinHelper.show_info("Hello from a Python plugin on iOS")
+
+    def on_send_message_hook(self, account, params):
+        text = params.get("message") or ""
+        if not text.startswith(COMMAND):
+            return HookResult()
+
+        greeting = self.get_setting("greeting", "Hello from iOS")
+        if self.get_setting("confirm", False):
+            BulletinHelper.show_info("Sending: %s" % greeting)
+        account_client = self.client(account)
+        account_client.send_text(params.get("peer"), greeting)
+        return HookResult(strategy=HookStrategy.CANCEL)
+
