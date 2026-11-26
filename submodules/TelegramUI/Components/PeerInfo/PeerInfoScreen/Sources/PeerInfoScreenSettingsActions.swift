@@ -7,6 +7,7 @@ import TelegramCore
 import SettingsUI
 import PeerInfoStoryGridScreen
 import CallListUI
+import ContactListUI
 import PassportUI
 import AccountUtils
 import OverlayStatusController
@@ -18,7 +19,6 @@ import InstantPageCache
 import WalletContext
 import UndoUI
 import ExteraPluginKit
-import ExtensionsUI
 
 extension PeerInfoScreenNode {
     func openSettings(section: PeerInfoSettingsSection) {
@@ -85,6 +85,14 @@ extension PeerInfoScreenNode {
             })
         case .recentCalls:
             push(CallListController(context: context, mode: .navigation))
+        case .contacts:
+            push(ContactsController(context: context))
+        case .plugins:
+            if let navigationController = self.controller?.navigationController {
+                navigationController.pushViewController(PluginsViewController(), animated: true)
+            }
+        case .extera:
+            push(ExteraSettingsController(context: self.context))
         case .devices:
             let _ = (self.activeSessionsContextAndCount.get()
             |> take(1)
@@ -180,10 +188,6 @@ extension PeerInfoScreenNode {
             self.controller?.push(SecureIdAuthController(context: self.context, mode: .list))
         case .watch:
             push(watchSettingsController(context: self.context))
-        case .plugins:
-            push(pluginsController(context: self.context))
-        case .extensions:
-            push(extensionsController(context: self.context))
         case .support:
             let supportPeer = Promise<EnginePeer.Id?>()
             supportPeer.set(context.engine.peers.supportPeerId())

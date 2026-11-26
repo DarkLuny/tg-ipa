@@ -635,6 +635,9 @@ public class AdMessagesHistoryContext {
     public let messageId: EngineMessage.Id?
     
     public var state: Signal<(interPostInterval: Int32?, messages: [Message], startDelay: Int32?, betweenDelay: Int32?), NoError> {
+        if ExteraSettings.shared.enableAdBlock {
+            return .single((interPostInterval: nil, messages: [], startDelay: nil, betweenDelay: nil))
+        }
         return Signal { subscriber in
             let disposable = MetaDisposable()
             

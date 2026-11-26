@@ -572,25 +572,38 @@ private final class MultipartFetchManager {
             }
         }
         
+        var partSize: Int64
+        var parallelParts: Int
         if isStory {
-            self.defaultPartSize = 512 * 1024
-            if let size = size, size > self.defaultPartSize {
-                self.parallelParts = 4
+            partSize = 512 * 1024
+            if let size = size, size > partSize {
+                parallelParts = 4
             } else {
-                self.parallelParts = 1
+                parallelParts = 1
             }
         } else if let size = size {
             if size <= 512 * 1024 {
-                self.defaultPartSize = 16 * 1024
-                self.parallelParts = 4 * 4
+                partSize = 16 * 1024
+                parallelParts = 4 * 4
             } else {
-                self.defaultPartSize = 512 * 1024
-                self.parallelParts = 8
+                partSize = 512 * 1024
+                parallelParts = 8
             }
         } else {
-            self.parallelParts = 1
-            self.defaultPartSize = 128 * 1024
+            parallelParts = 1
+            partSize = 128 * 1024
         }
+        
+        // exteraGram's Download Speed Boost.  A known small file keeps the
+        // small-part schedule because latency matters more than throughput
+        // there; a large or unknown-size file follows the Android values.
+        let speedBoost = ExteraSettings.shared.downloadSpeedBoost
+        if !isStory && speedBoost > 0 && (size == nil || size! > 512 * 1024) {
+            partSize = speedBoost == 2 ? 1024 * 1024 : 512 * 1024
+            parallelParts = speedBoost == 2 ? 12 : 8
+        }
+        self.defaultPartSize = partSize
+        self.parallelParts = parallelParts
         
         if let info = parameters?.info as? TelegramCloudMediaResourceFetchInfo {
             self.fileReference = info.reference.apiFileReference

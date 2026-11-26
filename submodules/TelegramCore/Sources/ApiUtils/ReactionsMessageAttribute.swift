@@ -81,6 +81,24 @@ extension ReactionsMessageAttribute {
 }
 
 public func mergedMessageReactionsAndPeers(accountPeerId: EnginePeer.Id, accountPeer: EnginePeer?, message: Message) -> (reactions: [MessageReaction], peers: [(MessageReaction.Reaction, EnginePeer)]) {
+    let peerId = message.id.peerId
+    if ExteraSettings.shared.hideReactionsInPrivateChats && (peerId.namespace == Namespaces.Peer.CloudUser || peerId.namespace == Namespaces.Peer.SecretChat) {
+        return ([], [])
+    }
+    if let channel = message.peers[peerId] as? TelegramChannel {
+        switch channel.info {
+        case .broadcast:
+            if ExteraSettings.shared.hideReactionsInChannels {
+                return ([], [])
+            }
+        case .group:
+            if ExteraSettings.shared.hideReactionsInGroups {
+                return ([], [])
+            }
+        }
+    } else if message.peers[peerId] is TelegramGroup, ExteraSettings.shared.hideReactionsInGroups {
+        return ([], [])
+    }
     guard let attribute = mergedMessageReactions(attributes: message.attributes, isTags: message.areReactionsTags(accountPeerId: accountPeerId)) else {
         return ([], [])
     }

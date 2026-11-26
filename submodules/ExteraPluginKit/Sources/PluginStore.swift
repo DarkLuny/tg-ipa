@@ -1,249 +1,463 @@
 import Foundation
 
-/// Where plugins live and how their state is persisted.
+/// One installed plugin.
+public final class Plugin: @unchecked Sendable {
+    public let manifest: PluginManifest
+    public let path: URL
+    public let index: Int
+    public let engine: String
+
+    public private(set) var isEnabled: Bool
+    public private(set) var isLoaded: Bool = false
+    public private(set) var error: String?
+    public private(set) var isNotResponding: Bool = false
+    public private(set) var settings: [PluginSettingControl] = []
+
+    public var id: String { self.manifest.id }
+    public var name: String { self.manifest.name }
+    public var isElyx: Bool { self.engine == "elyx-py" }
+
+    public init(manifest: PluginManifest, path: URL, index: Int, isEnabled: Bool, engine: String = "python") {
+        self.manifest = manifest
+        self.path = path
+        self.index = index
+        self.isEnabled = isEnabled
+        self.engine = engine
+    }
+
+    public func update(isEnabled: Bool? = nil, isLoaded: Bool? = nil, error: String? = nil, isNotResponding: Bool? = nil, clearError: Bool = false) {
+        if clearError {
+            self.error = nil
+        }
+        if let isEnabled {
+            self.isEnabled = isEnabled && self.error == nil
+        }
+        if let isLoaded {
+            self.isLoaded = isLoaded
+        }
+        if let error {
+            self.error = error
+            self.isEnabled = false
+        }
+        if let isNotResponding {
+            self.isNotResponding = isNotResponding
+        }
+    }
+
+    public func update(settings: [PluginSettingControl]) {
+        self.settings = settings
+    }
+
+    public func markEnabled(_ enabled: Bool) {
+        self.isEnabled = enabled && self.error == nil
+    }
+}
+
+public struct PluginLoadState: Sendable {
+    public var enabled: [String: Bool]
+    public var crashed: String?
+
+    public init(enabled: [String: Bool], crashed: String?) {
+        self.enabled = enabled
+        self.crashed = crashed
+    }
+}
+
+public enum PluginStoreError: Error, CustomStringConvertible {
+    case cannotCreateDirectory(String)
+    case missingSDK
+    case invalidPlugin(String)
+
+    public var description: String {
+        switch self {
+        case let .cannotCreateDirectory(path):
+            return "could not create \(path)"
+        case .missingSDK:
+            return "the plugins SDK is missing from the app bundle"
+        case let .invalidPlugin(message):
+            return message
+        }
+    }
+}
+
+/// Files, enable states and the SDK copy.
 ///
-/// exteraGram keeps plugins inside Android's private app storage and its
-/// settings in SharedPreferences. On iOS the equivalent is the app's Documents
-/// directory (visible in Files when the app opts in) and UserDefaults. Nothing
-/// here needs the App Group, so it keeps working after a sideload re-sign.
-public final class PluginStore {
+/// Layout under Application Support/ExteraPlugins:
+///
+///     plugins/<id>.plugin           installed plugins
+///     plugins-sdk/                  the Python SDK (copied from the bundle)
+///     plugins/plugin_settings.json  values written by plugin_settings.py
+///     plugins/.deps/<id>/           packages installed for a plugin
+///
+public final class PluginStore: @unchecked Sendable {
     public static let shared = PluginStore()
 
     private let fileManager = FileManager.default
+    private let lock = NSLock()
+    private let defaults = UserDefaults.standard
 
-    /// Serialises the two things that write to the plugins directory: an install,
-    /// and the sweep that removes what an older build left behind. They can run on
-    /// different queues — an install from the main queue after a picked file, the
-    /// sweep from the script queue — and without this one could delete the file
-    /// the other had just written.
-    private let fileLock = NSLock()
+    public private(set) var rootURL: URL!
+    public private(set) var pluginsURL: URL!
+    public private(set) var sdkURL: URL!
+    public private(set) var filesURL: URL!
 
-    public init() {
+    private let enabledPrefix = "extera.plugins.enabled."
+    private let crashKey = "extera.plugins.crashed"
+    private let pinnedKey = "extera.plugins.pinned"
+
+    private init() {
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        self.configure(root: base.appendingPathComponent("ExteraPlugins", isDirectory: true))
     }
 
-    /// `<Documents>/Plugins`. Created on first access.
-    public var pluginsDirectory: URL {
-        let documents = self.fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let url = documents.appendingPathComponent("Plugins", isDirectory: true)
-        if !self.fileManager.fileExists(atPath: url.path) {
-            try? self.fileManager.createDirectory(at: url, withIntermediateDirectories: true, attributes: nil)
+    private func configure(root: URL) {
+        self.rootURL = root
+        self.pluginsURL = root.appendingPathComponent("plugins", isDirectory: true)
+        self.sdkURL = root.appendingPathComponent("plugins-sdk", isDirectory: true)
+        self.filesURL = root.appendingPathComponent("files", isDirectory: true)
+    }
+
+    /// Points the store at another directory. Used by tests and the simulator.
+    public func use(root: URL) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.configure(root: root)
+    }
+
+    public func prepare() throws {
+        let depsURL = self.pluginsURL.appendingPathComponent(".deps", isDirectory: true)
+        for url in [self.rootURL, self.pluginsURL, self.filesURL, depsURL] {
+            do {
+                try self.fileManager.createDirectory(at: url!, withIntermediateDirectories: true, attributes: nil)
+            } catch {
+                throw PluginStoreError.cannotCreateDirectory(url?.path ?? "")
+            }
         }
-        return url
     }
 
-    public func directory(for pluginId: String) -> URL {
-        return self.pluginsDirectory.appendingPathComponent(pluginId, isDirectory: true)
-    }
-
-    /// Every plugin source file, sorted for a stable load order.
+    /// Installs the Python SDK from a directory shipped in the app bundle.
     ///
-    /// `.plugin` matches exteraGram's extension so a plugin can be dropped in
-    /// unchanged; `.js` is accepted so authors can use ordinary tooling.
-    public func pluginSources() -> [(id: String, url: URL)] {
-        let contents = (try? self.fileManager.contentsOfDirectory(
-            at: self.pluginsDirectory,
+    /// The copy is keyed by the SDK version: an app update replaces the SDK,
+    /// and a runtime installed by an OTA update (the Android behaviour) is left
+    /// alone unless the bundled one is newer.
+    public func installSDK(from source: URL, force: Bool = false) throws {
+        guard self.fileManager.fileExists(atPath: source.path) else {
+            throw PluginStoreError.missingSDK
+        }
+        guard let resolvedSource = Self.isSDKDirectory(source) ? source : Self.findSDKRoot(under: source) else {
+            throw PluginStoreError.missingSDK
+        }
+        let marker = self.sdkURL.appendingPathComponent("v.txt")
+        let bundledVersion = (try? String(contentsOf: resolvedSource.appendingPathComponent("v.txt"), encoding: .utf8)) ?? "0"
+        let installedVersion = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
+        if !force, installedVersion == bundledVersion, self.fileManager.fileExists(atPath: self.sdkURL.path) {
+            return
+        }
+        let staging = self.rootURL.appendingPathComponent("plugins-sdk.tmp", isDirectory: true)
+        try? self.fileManager.removeItem(at: staging)
+        try self.fileManager.copyItem(at: resolvedSource, to: staging)
+        try? self.fileManager.removeItem(at: self.sdkURL)
+        try self.fileManager.moveItem(at: staging, to: self.sdkURL)
+        try bundledVersion.write(to: marker, atomically: true, encoding: .utf8)
+    }
+
+    private static func isSDKDirectory(_ url: URL) -> Bool {
+        return FileManager.default.fileExists(atPath: url.appendingPathComponent("_extera_runtime.py").path)
+    }
+
+    /// Finds the SDK root when the resources were packaged with an extra path
+    /// prefix (for example `third-party/python-ios/PythonSupport/sdk`).
+    private static func findSDKRoot(under root: URL, depth: Int = 5) -> URL? {
+        if Self.isSDKDirectory(root) {
+            return root
+        }
+        guard depth > 0 else {
+            return nil
+        }
+        let children = (try? FileManager.default.contentsOfDirectory(
+            at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )) ?? []
-
-        var result: [(String, URL)] = []
-        for url in contents {
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if isDirectory {
-                // A bundle-style plugin: `<id>/main.plugin` or `<id>/main.js`.
-                // An Elyx project lands here too — its entry module is `main.js`
-                // when the archive's `refmap` names one, and `main.elyx.js`
-                // otherwise, so an archive that keeps a `.py` entry is found but
-                // rejected by the loader with the reason rather than skipped.
-                for candidate in ["main.plugin", "main.js", "plugin.js", "main.elyx.js"] {
-                    let file = url.appendingPathComponent(candidate)
-                    if self.fileManager.fileExists(atPath: file.path) {
-                        result.append((url.lastPathComponent, file))
-                        break
-                    }
-                }
-            } else if url.pathExtension == "plugin" || url.pathExtension == "js" {
-                result.append((url.deletingPathExtension().lastPathComponent, url))
+        for child in children {
+            guard (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
+                continue
+            }
+            if let found = Self.findSDKRoot(under: child, depth: depth - 1) {
+                return found
             }
         }
-        return result.sorted { $0.0 < $1.0 }
+        return nil
     }
 
-    /// Installs (or replaces) a plugin from the bytes of a picked file.
-    ///
-    /// The old directory is removed first: a plugin previously installed as a
-    /// bundle (`<id>/main.js`) would otherwise keep that file next to the new
-    /// `main.plugin`, and `pluginSources()` prefers `main.plugin`, so the two
-    /// could disagree about what the plugin is. Reinstalling also clears a
-    /// "disabled" flag left behind by an earlier removal.
-    public func install(data: Data, pluginId: String) throws {
-        self.fileLock.lock()
-        defer { self.fileLock.unlock() }
-        let directory = self.directory(for: pluginId)
-        try? self.fileManager.removeItem(at: directory)
-        try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-        try data.write(to: directory.appendingPathComponent("main.plugin"), options: .atomic)
-        self.setEnabled(true, pluginId: pluginId)
-        // This file is the user's now, so the sweep that removes what an older
-        // build wrote must never claim it. The id is dropped from that list here
-        // rather than relying on the sweep having already run: a plugin installed
-        // while the app is loading would otherwise be deleted a moment later.
-        self.clearLegacyBundledMark(pluginId: pluginId)
+    private static func isStdlibDirectory(_ url: URL) -> Bool {
+        return FileManager.default.fileExists(atPath: url.appendingPathComponent("encodings/__init__.py").path)
     }
 
-    /// Installs (or replaces) a plugin from an Elyx archive.
-    ///
-    /// The archive is extracted into `<id>/` rather than written as one file, so
-    /// the project's own layout — `src/`, `assets/`, `strings/` — survives and
-    /// `pluginSources()` finds `main.js` through the bundle branch it already
-    /// has. The extraction happens into a sibling directory that is renamed into
-    /// place only once it is complete, so a crash mid-extract cannot leave a
-    /// half-written plugin where a working one used to be.
-    public func installArchive(at archiveURL: URL, pluginId: String) throws {
-        self.fileLock.lock()
-        defer { self.fileLock.unlock() }
-        let directory = self.directory(for: pluginId)
-        let staging = self.pluginsDirectory.appendingPathComponent(".\(pluginId).incoming", isDirectory: true)
-        try? self.fileManager.removeItem(at: staging)
-        try self.fileManager.createDirectory(at: staging, withIntermediateDirectories: true, attributes: nil)
-        do {
-            _ = try PluginElyx.extract(archiveAt: archiveURL, into: staging)
-        } catch {
-            try? self.fileManager.removeItem(at: staging)
-            throw error
+    private static func findStdlibRoot(under root: URL, depth: Int = 6) -> URL? {
+        if root.lastPathComponent == "python3.11", Self.isStdlibDirectory(root) {
+            return root
         }
-        try? self.fileManager.removeItem(at: directory)
-        do {
-            try self.fileManager.moveItem(at: staging, to: directory)
-        } catch {
-            try? self.fileManager.removeItem(at: staging)
-            throw error
+        guard depth > 0 else {
+            return nil
         }
-        self.setEnabled(true, pluginId: pluginId)
-        self.clearLegacyBundledMark(pluginId: pluginId)
+        let children = (try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        for child in children {
+            guard (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
+                continue
+            }
+            if child.lastPathComponent == "python3.11", Self.isStdlibDirectory(child) {
+                return child
+            }
+            if let found = Self.findStdlibRoot(under: child, depth: depth - 1) {
+                return found
+            }
+        }
+        return nil
     }
 
-    /// Removes the plugin and everything the user configured for it, so a later
-    /// install of the same id starts from its own defaults instead of inheriting
-    /// settings that belonged to the removed copy.
-    public func remove(pluginId: String) {
-        self.fileLock.lock()
-        defer { self.fileLock.unlock() }
-        try? self.fileManager.removeItem(at: self.directory(for: pluginId))
-        // A plugin dropped in by hand may be a flat `<id>.plugin` / `<id>.js`
-        // rather than a bundle folder; both shapes are removed.
-        for suffix in ["plugin", "js"] {
-            try? self.fileManager.removeItem(at: self.pluginsDirectory.appendingPathComponent("\(pluginId).\(suffix)"))
+    /// The SDK directory inside the app bundle, if the build ships one.
+    public static func bundledSDKDirectory() -> URL? {
+        let bundleCandidates: [URL?] = [
+            Bundle.main.bundleURL.appendingPathComponent("ExteraPlugins.bundle", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("ExteraPlugins.bundle", isDirectory: true),
+            Bundle.main.bundleURL.appendingPathComponent("Frameworks/ExteraPlugins.bundle", isDirectory: true)
+        ]
+        var candidates: [URL?] = []
+        for bundleURL in bundleCandidates {
+            guard let bundleURL, let bundle = Bundle(url: bundleURL) else { continue }
+            candidates.append(bundleURL)
+            candidates.append(bundleURL.appendingPathComponent("PythonSupport/sdk", isDirectory: true))
+            candidates.append(bundleURL.appendingPathComponent("sdk", isDirectory: true))
+            if let resourcePath = bundle.resourcePath {
+                candidates.append(URL(fileURLWithPath: resourcePath).appendingPathComponent("PythonSupport/sdk", isDirectory: true))
+                candidates.append(URL(fileURLWithPath: resourcePath).appendingPathComponent("sdk", isDirectory: true))
+            }
         }
-        UserDefaults.standard.removeObject(forKey: self.settingsPrefix + pluginId)
-        self.setEnabled(true, pluginId: pluginId)
-        self.clearLegacyBundledMark(pluginId: pluginId)
+        candidates.append(Bundle.main.resourceURL?.appendingPathComponent("ExteraPlugins/sdk", isDirectory: true))
+        candidates.append(Bundle.main.bundleURL.appendingPathComponent("ExteraPlugins/sdk", isDirectory: true))
+        candidates.append(Bundle.main.resourceURL?.appendingPathComponent("plugins-sdk", isDirectory: true))
+        if let bundle = Bundle(identifier: "org.telegram.ExteraPlugins") {
+            candidates.append(bundle.bundleURL)
+            candidates.append(bundle.bundleURL.appendingPathComponent("PythonSupport/sdk", isDirectory: true))
+            candidates.append(bundle.bundleURL.appendingPathComponent("sdk", isDirectory: true))
+        }
+        for candidate in candidates {
+            guard let candidate else { continue }
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue, Self.isSDKDirectory(candidate) {
+                return candidate
+            }
+        }
+        for root in [Bundle.main.resourceURL, Bundle.main.bundleURL] {
+            guard let root else { continue }
+            if let found = Self.findSDKRoot(under: root) {
+                return found
+            }
+        }
+        return nil
+    }
+    /// The Python standard library shipped by `//third-party/python-ios`.
+    public static func bundledStdlibDirectory() -> URL? {
+        #if targetEnvironment(simulator)
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL?.appendingPathComponent("stdlib-simulator/python3.11", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("PythonStdlibSimulator/python3.11", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("stdlib/python3.11", isDirectory: true)
+        ]
+        #else
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL?.appendingPathComponent("stdlib/python3.11", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("PythonStdlib/python3.11", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("python3.11", isDirectory: true),
+            Bundle.main.bundleURL.appendingPathComponent("PythonStdlib/python3.11", isDirectory: true)
+        ]
+        #endif
+        for candidate in candidates {
+            guard let candidate else { continue }
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue, Self.isStdlibDirectory(candidate) {
+                return candidate
+            }
+        }
+        for root in [Bundle.main.resourceURL, Bundle.main.bundleURL] {
+            guard let root else { continue }
+            if let found = Self.findStdlibRoot(under: root) {
+                return found
+            }
+        }
+        return nil
     }
 
-    // MARK: - Copies an older build wrote
+    // -- Listing -------------------------------------------------------------
 
-    /// Ids whose file on disk came from an older build that shipped the plugins
-    /// inside the binary.
-    ///
-    /// That build wrote `<id>/main.plugin` itself and recorded the id here, which
-    /// is how it told "our copy, keep it current" from "the user installed this".
-    /// Since a plugin now arrives as a `.plugin` file, nothing updates those
-    /// copies any more: an app update leaves a stale script on disk that keeps
-    /// running, which is what made a fixed plugin still show its old text.
-    private var legacyBundledKey: String { "extera.plugin.bundled" }
+    public func installedPluginURLs() -> [URL] {
+        let contents = (try? self.fileManager.contentsOfDirectory(
+            at: self.pluginsURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return contents
+            .filter { $0.pathExtension.lowercased() == "plugin" }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
 
-    /// Forgets that `pluginId` ever came from an older build's binary.
-    ///
-    /// Called when the user installs the plugin themselves: from that moment the
-    /// file on disk is theirs, and the sweep below must not touch it even if it
-    /// has not run yet.
-    private func clearLegacyBundledMark(pluginId: String) {
-        guard var ids = UserDefaults.standard.array(forKey: self.legacyBundledKey) as? [String],
-              ids.contains(pluginId) else {
-            return
+    public func loadInstalled() -> [Plugin] {
+        var result: [Plugin] = []
+        for (index, url) in self.installedPluginURLs().enumerated() {
+            do {
+                let manifest = try PluginManifestParser.parse(fileAt: url)
+                let enabled = self.defaults.object(forKey: self.enabledPrefix + manifest.id) as? Bool ?? true
+                result.append(Plugin(manifest: manifest, path: url, index: index, isEnabled: enabled))
+            } catch {
+                // Android keeps a broken plugin in the list, disabled and with
+                // the parse error, so the user can read the reason and delete it.
+                let fallbackId = url.deletingPathExtension().lastPathComponent
+                let manifest = PluginManifest(id: fallbackId, name: fallbackId)
+                let plugin = Plugin(manifest: manifest, path: url, index: index, isEnabled: false)
+                plugin.update(error: "\(error)")
+                plugin.markEnabled(false)
+                PluginLog.log("Invalid plugin \(url.lastPathComponent): \(error)", level: .warning)
+                result.append(plugin)
+            }
         }
-        ids.removeAll { $0 == pluginId }
-        if ids.isEmpty {
-            UserDefaults.standard.removeObject(forKey: self.legacyBundledKey)
+        return result
+    }
+
+    public func isEnabled(_ id: String) -> Bool {
+        return self.defaults.object(forKey: self.enabledPrefix + id) as? Bool ?? true
+    }
+
+    public func setEnabled(_ enabled: Bool, for id: String) {
+        self.defaults.set(enabled, forKey: self.enabledPrefix + id)
+    }
+
+    public func clearEnabled(for id: String) {
+        self.defaults.removeObject(forKey: self.enabledPrefix + id)
+    }
+
+    public var pinnedPluginIds: [String] {
+        return self.defaults.stringArray(forKey: self.pinnedKey) ?? []
+    }
+
+    public func isPinned(_ id: String) -> Bool {
+        return self.pinnedPluginIds.contains(id)
+    }
+
+    public func setPinned(_ pinned: Bool, for id: String) {
+        var ids = self.pinnedPluginIds
+        if pinned {
+            if !ids.contains(id) {
+                ids.append(id)
+            }
         } else {
-            UserDefaults.standard.set(ids, forKey: self.legacyBundledKey)
+            ids.removeAll { $0 == id }
+        }
+        self.defaults.set(ids, forKey: self.pinnedKey)
+    }
+
+    public var crashedPluginId: String? {
+        get { return self.defaults.string(forKey: self.crashKey) }
+        set {
+            if let newValue {
+                self.defaults.set(newValue, forKey: self.crashKey)
+            } else {
+                self.defaults.removeObject(forKey: self.crashKey)
+            }
         }
     }
 
-    /// Deletes the plugins an older build installed, once.
-    ///
-    /// Only ids recorded in `extera.plugin.bundled` are touched, so a plugin the
-    /// user installed from a file is never removed. Settings are left alone: the
-    /// code is what is stale, not the switches, and reinstalling the same
-    /// `.plugin` should find the configuration the user already had.
-    ///
-    /// Runs before the first load so a stale script cannot answer a single hook.
-    /// A backfill for the build that shipped seven plugins: once it has removed
-    /// what that build left behind the key is gone, so this is a no-op.
-    ///
-    /// Returns the ids it removed, so the caller can say so in the log instead of
-    /// letting the plugins vanish silently.
+    // -- Mutations -----------------------------------------------------------
+
+    /// Copies a `.plugin` file into the store, replacing a previous version.
+    /// Returns the plugin id and whether an older copy was replaced.
     @discardableResult
-    public func removeLegacyBundledPlugins() -> [String] {
-        self.fileLock.lock()
-        defer { self.fileLock.unlock() }
-        guard let ids = UserDefaults.standard.array(forKey: self.legacyBundledKey) as? [String], !ids.isEmpty else {
+    public func install(fileAt url: URL) throws -> (manifest: PluginManifest, replaced: Bool) {
+        let manifest = try PluginManifestParser.parse(fileAt: url)
+        // A plugin id is also a Python module name (`extera_plugin_<id>` and
+        // the source is importable as `<id>`); an SDK module of the same name
+        // must not be shadowed.
+        if self.topLevelModuleNames(in: self.sdkURL).contains(manifest.id) {
+            throw PluginStoreError.invalidPlugin(
+                "plugin __id__ \"\(manifest.id)\" is already used as a Python module name by the plugins SDK"
+            )
+        }
+        let destination = self.pluginsURL.appendingPathComponent(manifest.id + ".plugin")
+        let replaced = self.fileManager.fileExists(atPath: destination.path)
+        if replaced {
+            let backup = self.rootURL.appendingPathComponent("backup-" + manifest.id + ".plugin")
+            try? self.fileManager.removeItem(at: backup)
+            try? self.fileManager.copyItem(at: destination, to: backup)
+        }
+        try? self.fileManager.removeItem(at: destination)
+        try self.fileManager.copyItem(at: url, to: destination)
+        if !replaced {
+            self.defaults.set(true, forKey: self.enabledPrefix + manifest.id)
+        }
+        return (manifest, replaced)
+    }
+
+    public func delete(id: String) throws {
+        let url = self.pluginsURL.appendingPathComponent(id + ".plugin")
+        try? self.fileManager.removeItem(at: url)
+        self.defaults.removeObject(forKey: self.enabledPrefix + id)
+        let dependencies = self.pluginsURL.appendingPathComponent(".deps/" + id, isDirectory: true)
+        try? self.fileManager.removeItem(at: dependencies)
+    }
+
+    public func pluginURL(id: String) -> URL {
+        return self.pluginsURL.appendingPathComponent(id + ".plugin")
+    }
+
+    public func elyxPluginURL(id: String) -> URL {
+        return self.pluginsURL
+            .appendingPathComponent("ElyxPlugins", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+    }
+
+    /// Top-level importable names in a directory: the same rule the Android
+    /// engine uses to decide whether a plugin id shadows a module.
+    public func topLevelModuleNames(in directory: URL) -> Set<String> {
+        guard let contents = try? self.fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
             return []
         }
-        for pluginId in ids {
-            // A directory form is a whole installation; the flat forms are what
-            // `pluginSources()` also reads, and either shape is ours to remove.
-            try? self.fileManager.removeItem(at: self.directory(for: pluginId))
-            for suffix in ["plugin", "js"] {
-                try? self.fileManager.removeItem(at: self.pluginsDirectory.appendingPathComponent("\(pluginId).\(suffix)"))
+        var names = Set<String>()
+        for url in contents {
+            let name = url.lastPathComponent
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if isDirectory {
+                if name == "__pycache__" || name.hasSuffix(".dist-info") || name.hasSuffix(".data") {
+                    continue
+                }
+                names.insert(name)
+            } else if name.hasSuffix(".py") || name.hasSuffix(".pyc") || name.hasSuffix(".so") {
+                if let stem = name.split(separator: ".").first {
+                    names.insert(String(stem))
+                }
             }
         }
-        UserDefaults.standard.removeObject(forKey: self.legacyBundledKey)
-        // The sibling key that old build used for "the user deleted our copy".
-        // It names ids that are not on disk either way, so leaving it would only
-        // keep a second stale list alive.
-        UserDefaults.standard.removeObject(forKey: "extera.plugin.removed")
-        return ids
+        return names
     }
 
-    // MARK: - Settings
-
-    private var settingsPrefix: String { "extera.plugin.settings." }
-
-    public func settings(for pluginId: String) -> [String: Any] {
-        return (UserDefaults.standard.dictionary(forKey: self.settingsPrefix + pluginId)) ?? [:]
+    public func settingsFileURL() -> URL {
+        return self.pluginsURL.appendingPathComponent("plugin_settings.json")
     }
 
-    public func setSettings(_ values: [String: Any], for pluginId: String) {
-        UserDefaults.standard.set(values, forKey: self.settingsPrefix + pluginId)
-    }
+    // -- Hashing -------------------------------------------------------------
 
-    public func setSetting(_ key: String, value: Any?, for pluginId: String) {
-        var current = self.settings(for: pluginId)
-        if let value = value {
-            current[key] = value
-        } else {
-            current.removeValue(forKey: key)
+    public func sha256(of url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
         }
-        self.setSettings(current, for: pluginId)
-    }
-
-    // MARK: - Enabled state
-
-    private var enabledKey: String { "extera.plugin.enabled" }
-
-    public func isEnabled(_ pluginId: String) -> Bool {
-        let disabled = (UserDefaults.standard.array(forKey: self.enabledKey) as? [String]) ?? []
-        return !disabled.contains(pluginId)
-    }
-
-    public func setEnabled(_ enabled: Bool, pluginId: String) {
-        var disabled = Set((UserDefaults.standard.array(forKey: self.enabledKey) as? [String]) ?? [])
-        if enabled {
-            disabled.remove(pluginId)
-        } else {
-            disabled.insert(pluginId)
-        }
-        UserDefaults.standard.set(Array(disabled), forKey: self.enabledKey)
+        return PluginHashing.sha256(data)
     }
 }

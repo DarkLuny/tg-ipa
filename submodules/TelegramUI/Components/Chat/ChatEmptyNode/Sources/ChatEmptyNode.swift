@@ -1,5 +1,4 @@
 import Foundation
-import LottieSettings
 import UIKit
 import AsyncDisplayKit
 import Display
@@ -182,6 +181,8 @@ public final class ChatEmptyNodeGreetingChatContent: ASDisplayNode, ChatEmptyNod
         let previousCustomStickerFile = self.currentCustomStickerFile
         self.currentCustomStickerFile = customStickerFile
         
+        let showsSticker = customStickerFile != nil || !ExteraSettings.shared.disableGreetingSticker
+
         var stickerSize: CGSize
         let inset: CGFloat
         if size.width == 320.0 {
@@ -195,10 +196,13 @@ public final class ChatEmptyNodeGreetingChatContent: ASDisplayNode, ChatEmptyNod
         if let customStickerFile, let dimensions = customStickerFile.dimensions?.cgSize {
             stickerSize = dimensions.aspectFitted(stickerSize)
         }
+        if !showsSticker {
+            stickerSize = .zero
+        }
         
-        if let item = self.stickerItem, previousCustomStickerFile == customStickerFile {
+        if showsSticker, let item = self.stickerItem, previousCustomStickerFile == customStickerFile {
             self.stickerNode.updateLayout(item: item, size: stickerSize, isVisible: true, synchronousLoads: true)
-        } else if !self.didSetupSticker || previousCustomStickerFile != customStickerFile {
+        } else if showsSticker && (!self.didSetupSticker || previousCustomStickerFile != customStickerFile) {
             let sticker: Signal<TelegramMediaFile?, NoError>
             if let customStickerFile {
                 sticker = .single(customStickerFile)
@@ -267,6 +271,7 @@ public final class ChatEmptyNodeGreetingChatContent: ASDisplayNode, ChatEmptyNod
                 }
             }))
         }
+        self.stickerNode.isHidden = !showsSticker
         
         let insets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         let titleSpacing: CGFloat = 5.0
@@ -280,7 +285,7 @@ public final class ChatEmptyNodeGreetingChatContent: ASDisplayNode, ChatEmptyNod
         
         contentWidth = max(contentWidth, max(titleSize.width, textSize.width))
         
-        contentHeight += titleSize.height + titleSpacing + textSize.height + stickerSpacing + stickerSize.height
+        contentHeight += titleSize.height + titleSpacing + textSize.height + (showsSticker ? stickerSpacing + stickerSize.height : 0.0)
         
         let contentRect = CGRect(origin: CGPoint(x: insets.left, y: insets.top), size: CGSize(width: contentWidth, height: contentHeight))
         
@@ -1051,10 +1056,8 @@ public final class ChatEmptyNodePremiumRequiredChatContent: ASDisplayNode, ChatE
     private var currentStrings: PresentationStrings?
     
     private let stars: Int64?
-    private let lottieSettings: LottieRenderingSettings
     
     public init(context: AccountContext, interaction: ChatPanelInterfaceInteraction?, stars: Int64?) {
-        self.lottieSettings = context.lottieRenderingSettings
         let premiumConfiguration = PremiumConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
         self.isPremiumDisabled = premiumConfiguration.isPremiumDisabled
         self.stars = stars
@@ -1238,8 +1241,7 @@ public final class ChatEmptyNodePremiumRequiredChatContent: ASDisplayNode, ChatE
                         content: LottieComponent.AppBundleContent(name: "PremiumRequired"),
                         color: serviceColor.primaryText,
                         size: CGSize(width: 120.0, height: 120.0),
-                        loop: true,
-                        lottieSettings: self.lottieSettings
+                        loop: true
                     )
                 )
             }

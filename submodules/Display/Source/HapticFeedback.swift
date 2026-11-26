@@ -126,6 +126,11 @@ private final class HapticFeedbackImpl {
 }
 
 public final class HapticFeedback {
+    /// Global switch used by exteraGram's "In-app vibration" setting.  The
+    /// app sets it at launch and when the setting changes; Display itself has
+    /// no dependency on TelegramCore.
+    public static var isEnabled: Bool = true
+
     private var impl: AnyObject?
     
     public init() {
@@ -151,6 +156,9 @@ public final class HapticFeedback {
     }
     
     public func prepareTap() {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.prepareTap()
@@ -159,6 +167,9 @@ public final class HapticFeedback {
     }
     
     public func tap() {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.tap()
@@ -167,6 +178,9 @@ public final class HapticFeedback {
     }
     
     public func prepareImpact(_ style: ImpactHapticFeedbackStyle = .medium) {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.prepareImpact(style)
@@ -175,6 +189,9 @@ public final class HapticFeedback {
     }
     
     public func impact(_ style: ImpactHapticFeedbackStyle = .medium, intensity: CGFloat? = nil) {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.impact(style, intensity: intensity)
@@ -183,6 +200,9 @@ public final class HapticFeedback {
     }
     
     public func success() {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.success()
@@ -191,6 +211,9 @@ public final class HapticFeedback {
     }
     
     public func prepareError() {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.prepareError()
@@ -199,6 +222,9 @@ public final class HapticFeedback {
     }
     
     public func error() {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.error()
@@ -207,6 +233,9 @@ public final class HapticFeedback {
     }
     
     public func warning() {
+        guard HapticFeedback.isEnabled else {
+            return
+        }
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
                 impl.warning()

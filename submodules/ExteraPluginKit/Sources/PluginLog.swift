@@ -1,51 +1,108 @@
 import Foundation
 
-/// Minimal logger so the plugin runtime has no dependency on TelegramCore.
-///
-/// `os_log` would be tidier, but keeping this to Foundation means the module
-/// compiles and unit-tests without the rest of the app. Everything goes to the
-/// shared log file in the app's Library directory, which is what a user needs
-/// when a plugin misbehaves on a sideloaded build with no debugger attached.
+public enum PluginJSON {
+    public static func encodeString(_ value: Any) -> String {
+        guard JSONSerialization.isValidJSONObject(value) else {
+            return "null"
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: []),
+              let text = String(data: data, encoding: .utf8) else {
+            return "null"
+        }
+        return text
+    }
+
+    public static func encode(_ value: Any) -> String {
+        return self.encodeString(value)
+    }
+
+    public static func decode(_ text: String) -> Any? {
+        guard let data = text.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
+    public static func dictionary(_ text: String) -> [String: Any] {
+        return (self.decode(text) as? [String: Any]) ?? [:]
+    }
+}
+
+public enum PluginLogLevel: String, Sendable {
+    case debug
+    case info
+    case warning
+    case error
+}
+
+public struct PluginLogEntry: Sendable {
+    public var date: Date
+    public var pluginId: String
+    public var level: PluginLogLevel
+    public var text: String
+
+    public init(date: Date = Date(), pluginId: String, level: PluginLogLevel, text: String) {
+        self.date = date
+        self.pluginId = pluginId
+        self.level = level
+        self.text = text
+    }
+}
+
+/// Per-plugin log ring buffer, shown by the Plugins screen.
 public enum PluginLog {
-    private static let queue = DispatchQueue(label: "extera.pluginkit.log")
-    private static let maxBytes = 256 * 1024
+    public static let didChange = Notification.Name("ExteraPluginKit.PluginLogDidChange")
 
-    public static var logFileURL: URL {
-        let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("extera-plugins.log")
-    }
+    private static let lock = NSLock()
+    private static var entries: [PluginLogEntry] = []
+    private static let limit = 2000
 
-    public static func write(pluginId: String, text: String) {
-        let line = "[\(pluginId)] \(text)\n"
+    public static func log(_ text: String, pluginId: String = "", level: PluginLogLevel = .info) {
+        let trimmed = text.count > 8000 ? String(text.prefix(8000)) + "..." : text
+        let entry = PluginLogEntry(pluginId: pluginId, level: level, text: trimmed)
+        lock.lock()
+        entries.append(entry)
+        if entries.count > limit {
+            entries.removeFirst(entries.count - limit)
+        }
+        lock.unlock()
+
         #if DEBUG
-        print("PluginKit \(line)", terminator: "")
+        NSLog("[extera-plugins][%@][%@] %@", pluginId, level.rawValue, trimmed)
         #endif
-        self.queue.async {
-            let url = self.logFileURL
-            let data = Data(line.utf8)
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                handle.seekToEndOfFile()
-                try? handle.write(contentsOf: data)
-                if handle.offsetInFile > UInt64(self.maxBytes) {
-                    try? handle.truncate(atOffset: 0)
-                }
-            } else {
-                try? data.write(to: url, options: .atomic)
-            }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: didChange, object: nil)
         }
     }
 
-    /// Last `lines` log lines, newest last. Used by the plugin manager screen.
-    public static func recentLines(limit: Int) -> [String] {
-        guard let text = try? String(contentsOf: self.logFileURL, encoding: .utf8) else {
-            return []
-        }
-        let all = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-        return Array(all.suffix(limit))
+    public static func all() -> [PluginLogEntry] {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries
+    }
+
+    public static func forPlugin(_ pluginId: String) -> [PluginLogEntry] {
+        return self.all().filter { $0.pluginId == pluginId }
+    }
+
+    public static func text(forPlugin pluginId: String) -> String {
+        return self.forPlugin(pluginId).map { entry in
+            "[\(Self.formatter.string(from: entry.date))] [\(entry.level.rawValue)] \(entry.text)"
+        }.joined(separator: "\n")
     }
 
     public static func clear() {
-        try? FileManager.default.removeItem(at: self.logFileURL)
+        lock.lock()
+        entries.removeAll()
+        lock.unlock()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
     }
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 }

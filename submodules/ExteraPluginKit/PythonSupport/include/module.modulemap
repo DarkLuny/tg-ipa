@@ -1,0 +1,4 @@
+module ExteraPython {
+    header "PluginPython.h"
+    export *
+}

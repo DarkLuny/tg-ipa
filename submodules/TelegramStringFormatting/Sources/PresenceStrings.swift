@@ -578,6 +578,21 @@ public func stringAndActivityForUserPresence(strings: PresentationStrings, dateT
             return (strings.Presence_online, true)
         } else {
             let difference = timestamp - statusTimestamp
+            if ExteraSettings.shared.relativeLastSeen {
+                if difference < 60 {
+                    return (strings.LastSeen_JustNow, false)
+                } else if difference < 60 * 60 {
+                    return (strings.LastSeen_MinutesAgo(max(1, difference / 60)), false)
+                } else if difference < 24 * 60 * 60 {
+                    return (strings.LastSeen_HoursAgo(max(1, difference / (60 * 60))), false)
+                } else if difference < 7 * 24 * 60 * 60 {
+                    return (strings.LastSeen_WithinAWeek, false)
+                } else if difference < 30 * 24 * 60 * 60 {
+                    return (strings.LastSeen_WithinAMonth, false)
+                } else {
+                    return (strings.LastSeen_ALongTimeAgo, false)
+                }
+            }
             if difference < 60 {
                 return (strings.LastSeen_JustNow, false)
             } else if difference < 60 * 60 && !expanded {

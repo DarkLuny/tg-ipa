@@ -12,6 +12,7 @@ import ReactionImageComponent
 import AnimationCache
 import MultiAnimationRenderer
 import TelegramStringFormatting
+import StaticGlassBackground
 
 private func maybeAddRotationAnimation(_ layer: CALayer, duration: Double) {
     if let _ = layer.animation(forKey: "clockFrameAnimation") {
@@ -269,10 +270,6 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
         var canViewReactionList: Bool
         var animationCache: AnimationCache
         var animationRenderer: MultiAnimationRenderer
-        /// Set for a row rebuilt from a copy a plugin kept after the message was
-        /// deleted. The date/status line then carries a red bin, which is what
-        /// tells a saved row apart from a live one at a glance.
-        var isDeleted: Bool
         
         public init(
             context: AccountContext,
@@ -298,8 +295,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
             hasAutoremove: Bool,
             canViewReactionList: Bool,
             animationCache: AnimationCache,
-            animationRenderer: MultiAnimationRenderer,
-            isDeleted: Bool = false
+            animationRenderer: MultiAnimationRenderer
         ) {
             self.context = context
             self.presentationData = presentationData
@@ -325,12 +321,13 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
             self.canViewReactionList = canViewReactionList
             self.animationCache = animationCache
             self.animationRenderer = animationRenderer
-            self.isDeleted = isDeleted
         }
     }
     
     private var backgroundNode: ASImageNode?
     private var blurredBackgroundNode: NavigationBackgroundNode?
+    // Bubble mode off: the time's plate drawn from glass images (`staticGlassPlate` in the layout).
+    private var staticGlassView: StaticGlassBackgroundView?
     private var checkSentNode: ASImageNode?
     private var checkReadNode: ASImageNode?
     private var clockFrameNode: ASImageNode?
@@ -345,22 +342,6 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
     private var replyCountNode: TextNode?
     private var starsIcon: ASImageNode?
     private var starsCountNode: TextNode?
-    /// The red bin on a row a plugin kept after the message was deleted.
-    private var deletedIcon: ASImageNode?
-
-    /// The marker itself, drawn once for the whole process.
-    ///
-    /// A bin rather than a badge: the Android module's deleted-messages screen
-    /// used one, and a red one says "this message is gone" without a legend. The
-    /// source art is 30pt, which is taller than the 11pt date line it sits in, so
-    /// it is scaled down before being tinted.
-    private static let deletedIconImage: UIImage? = {
-        guard let source = UIImage(bundleImageName: "Chat/Input/Accessory Panels/MessageSelectionTrash") else {
-            return nil
-        }
-        let scaled = generateScaledImage(image: source, size: CGSize(width: 11.0, height: 11.0), opaque: false)
-        return generateTintedImage(image: scaled, color: UIColor(rgb: 0xff3b30))
-    }()
 
     private var type: ChatMessageDateAndStatusType?
     private var theme: ChatPresentationThemeData?
@@ -416,7 +397,6 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
         var currentImpressionIcon = self.impressionIcon
         var currentRepliesIcon = self.repliesIcon
         var currentStarsIcon = self.starsIcon
-        var currentDeletedIcon = self.deletedIcon
 
         let currentType = self.type
         let currentTheme = self.theme
@@ -630,7 +610,8 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
             if arguments.edited {
                 if let useEditedTimestamp = arguments.context.getAppConfigValue("message_primary_edited_date") as? Bool, useEditedTimestamp {
                 } else {
-                    updatedDateText = "\(arguments.presentationData.strings.Conversation_MessageEditedLabel) \(updatedDateText)"
+                    let editedPrefix = ExteraSettings.shared.replaceEditedWithIcon ? "\u{270E}" : arguments.presentationData.strings.Conversation_MessageEditedLabel
+                    updatedDateText = "\(editedPrefix) \(updatedDateText)"
                 }
             }
             if let impressionCount = arguments.impressionCount {
@@ -691,22 +672,6 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                 starsIconSize = starsImage.size
             } else {
                 currentStarsIcon = nil
-            }
-            
-            // The deleted marker is only drawn for a row a plugin kept, so a
-            // chat with none of them pays one nil check.
-            var deletedIconWidth: CGFloat = 0.0
-            if arguments.isDeleted, let deletedIconImage = ChatMessageDateAndStatusNode.deletedIconImage {
-                if currentDeletedIcon == nil {
-                    let iconNode = ASImageNode()
-                    iconNode.isLayerBacked = true
-                    iconNode.displayWithoutProcessing = true
-                    iconNode.displaysAsynchronously = false
-                    currentDeletedIcon = iconNode
-                }
-                deletedIconWidth = deletedIconImage.size.width + 3.0
-            } else {
-                currentDeletedIcon = nil
             }
             
             if let outgoingStatus = outgoingStatus {
@@ -783,9 +748,9 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                         let checkSize = loadedCheckFullImage!.size
                         
                         if read {
-                            checkReadFrame = CGRect(origin: CGPoint(x: leftInset + impressionWidth + deletedIconWidth + date.size.width + 5.0 + statusWidth - checkSize.width, y: 3.0 + offset), size: checkSize)
+                            checkReadFrame = CGRect(origin: CGPoint(x: leftInset + impressionWidth + date.size.width + 5.0 + statusWidth - checkSize.width, y: 3.0 + offset), size: checkSize)
                         }
-                        checkSentFrame = CGRect(origin: CGPoint(x: leftInset + impressionWidth + deletedIconWidth + date.size.width + 5.0 + statusWidth - checkSize.width - checkOffset, y: 3.0 + offset), size: checkSize)
+                        checkSentFrame = CGRect(origin: CGPoint(x: leftInset + impressionWidth + date.size.width + 5.0 + statusWidth - checkSize.width - checkOffset, y: 3.0 + offset), size: checkSize)
                     }
                 case .Failed:
                     statusWidth = 0.0
@@ -874,7 +839,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
             
             leftInset += reactionInset
             
-            let layoutSize = CGSize(width: leftInset + impressionWidth + deletedIconWidth + date.size.width + statusWidth + backgroundInsets.left + backgroundInsets.right, height: date.size.height + backgroundInsets.top + backgroundInsets.bottom)
+            let layoutSize = CGSize(width: leftInset + impressionWidth + date.size.width + statusWidth + backgroundInsets.left + backgroundInsets.right, height: date.size.height + backgroundInsets.top + backgroundInsets.bottom)
             
             let resultingWidth: CGFloat
             /// Deferred to the continue closure, which is the first point that knows the width the
@@ -1165,7 +1130,18 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                             }
                         }
                         
-                        if backgroundImage != nil {
+                        // Bubble mode off: the time's plate is glass drawn from images: over media the dark media glass (the
+                        // time and checks over a picture are white), under stickers and round videos the page's glass.
+                        var staticGlassPlate: (tint: StaticGlassTint, isDark: Bool)?
+                        if !arguments.presentationData.chatBubbleCorners.bubbleMode {
+                            if backgroundImage != nil {
+                                staticGlassPlate = (.media, true)
+                            } else if blurredBackgroundColor != nil {
+                                staticGlassPlate = (.panel, arguments.presentationData.theme.theme.overallDarkAppearance)
+                            }
+                        }
+                        
+                        if backgroundImage != nil && staticGlassPlate == nil {
                             if let currentBackgroundNode = currentBackgroundNode {
                                 if currentBackgroundNode.supernode == nil {
                                     strongSelf.backgroundNode = currentBackgroundNode
@@ -1185,7 +1161,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                             }
                         }
 
-                        if let blurredBackgroundColor = blurredBackgroundColor {
+                        if let blurredBackgroundColor = blurredBackgroundColor, staticGlassPlate == nil {
                             if let blurredBackgroundNode = strongSelf.blurredBackgroundNode {
                                 blurredBackgroundNode.updateColor(color: blurredBackgroundColor.0, enableBlur: blurredBackgroundColor.1, transition: .immediate)
                                 animation.animator.updateFrame(layer: blurredBackgroundNode.layer, frame: CGRect(origin: CGPoint(), size: layoutSize), completion: nil)
@@ -1200,6 +1176,28 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                         } else if let blurredBackgroundNode = strongSelf.blurredBackgroundNode {
                             strongSelf.blurredBackgroundNode = nil
                             blurredBackgroundNode.removeFromSupernode()
+                        }
+                        
+                        if let staticGlassPlate {
+                            let glassView: StaticGlassBackgroundView
+                            var glassAnimation = animation
+                            if let current = strongSelf.staticGlassView {
+                                glassView = current
+                            } else {
+                                glassAnimation = .None
+                                glassView = StaticGlassBackgroundView()
+                                glassView.isUserInteractionEnabled = false
+                                strongSelf.staticGlassView = glassView
+                                strongSelf.view.insertSubview(glassView, at: 0)
+                            }
+                            let plateFrame = CGRect(origin: CGPoint(), size: layoutSize)
+                            glassAnimation.animator.updateFrame(layer: glassView.layer, frame: plateFrame, completion: nil)
+                            glassView.update(size: layoutSize, cornerRadius: layoutSize.height * 0.5, isDark: staticGlassPlate.isDark, tint: staticGlassPlate.tint, updateFrame: { view, frame in
+                                glassAnimation.animator.updateFrame(layer: view.layer, frame: frame, completion: nil)
+                            })
+                        } else if let glassView = strongSelf.staticGlassView {
+                            strongSelf.staticGlassView = nil
+                            glassView.removeFromSuperview()
                         }
                         
                         let _ = dateApply()
@@ -1222,28 +1220,7 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                             strongSelf.impressionIcon = nil
                         }
                         
-                        animation.animator.updateFrame(layer: strongSelf.dateNode.layer, frame: CGRect(origin: CGPoint(x: leftOffset + leftInset + backgroundInsets.left + impressionWidth + deletedIconWidth, y: backgroundInsets.top + 1.0 + offset + verticalInset), size: date.size), completion: nil)
-
-                        if let currentDeletedIcon = currentDeletedIcon, let deletedIconImage = ChatMessageDateAndStatusNode.deletedIconImage {
-                            currentDeletedIcon.displaysAsynchronously = false
-                            if currentDeletedIcon.image !== deletedIconImage {
-                                currentDeletedIcon.image = deletedIconImage
-                            }
-                            let deletedIconFrame = CGRect(
-                                origin: CGPoint(x: leftOffset + leftInset + backgroundInsets.left + impressionWidth, y: backgroundInsets.top + 1.0 + offset + verticalInset + floor((date.size.height - deletedIconImage.size.height) / 2.0)),
-                                size: deletedIconImage.size
-                            )
-                            if currentDeletedIcon.supernode == nil {
-                                strongSelf.deletedIcon = currentDeletedIcon
-                                strongSelf.addSubnode(currentDeletedIcon)
-                                currentDeletedIcon.frame = deletedIconFrame
-                            } else {
-                                animation.animator.updateFrame(layer: currentDeletedIcon.layer, frame: deletedIconFrame, completion: nil)
-                            }
-                        } else if let deletedIcon = strongSelf.deletedIcon {
-                            deletedIcon.removeFromSupernode()
-                            strongSelf.deletedIcon = nil
-                        }
+                        animation.animator.updateFrame(layer: strongSelf.dateNode.layer, frame: CGRect(origin: CGPoint(x: leftOffset + leftInset + backgroundInsets.left + impressionWidth, y: backgroundInsets.top + 1.0 + offset + verticalInset), size: date.size), completion: nil)
                         
                         if let clockFrameNode = clockFrameNode {
                             let clockPosition = CGPoint(x: leftOffset + backgroundInsets.left + clockPosition.x + reactionInset, y: backgroundInsets.top + clockPosition.y + verticalInset)

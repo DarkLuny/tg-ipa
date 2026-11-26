@@ -1,28 +1,51 @@
+load("@rules_cc//cc:objc_library.bzl", "objc_library")
 load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@build_bazel_rules_apple//apple:resources.bzl", "apple_resource_bundle", "apple_resource_group")
+load("//build-system/bazel-utils:plist_fragment.bzl", "plist_fragment")
 
-# The bootstrap is the plugin-visible API (BasePlugin, HookResult,
-# ui.settings, ...). It is written as JavaScript so it can be unit-tested with
-# node, and converted to a Swift string literal at build time so the binary
-# carries it as a resource-free constant. Hand-escaping it into Swift would be a
-# second copy to keep in sync, which is exactly the bug this avoids.
-#
-# The plugins themselves are deliberately *not* embedded: a plugin is installed
-# by the user from a `.plugin` file (opened from a chat, or picked in the plugin
-# screen), exactly as on exteraGram. Shipping them inside the binary made them
-# impossible to remove, and made the IPA the update channel for code the user
-# did not ask for.
-genrule(
-    name = "PluginBootstrapSource",
-    srcs = [
-        "generate_bootstrap.py",
-        "js/bootstrap.js",
+# The Python SDK is copied into the app bundle as `ExteraPlugins.bundle` and
+# unpacked into Application Support on first launch, so a plugin sees a writable
+# directory and an SDK update can replace it without touching user data.
+plist_fragment(
+    name = "ExteraPluginsInfo",
+    extension = "plist",
+    template = "<key>CFBundleIdentifier</key><string>org.telegram.ExteraPlugins</string><key>CFBundleName</key><string>ExteraPlugins</string>",
+)
+
+apple_resource_group(
+    name = "ExteraPluginsSDKResources",
+    structured_resources = glob([
+        "PythonSupport/sdk/**",
+    ]),
+)
+
+apple_resource_bundle(
+    name = "ExteraPluginsBundle",
+    bundle_name = "ExteraPlugins",
+    infoplists = [":ExteraPluginsInfo"],
+    resources = [":ExteraPluginsSDKResources"],
+    visibility = ["//visibility:public"],
+)
+
+# CPython bridge. The C file compiles to a stub when no Python headers are on
+# the include path, so the app links without the runtime and reports
+# `isAvailable == false`; see README.md for adding Python-Apple-support.
+objc_library(
+    name = "PluginPython",
+    srcs = ["PythonSupport/src/PluginPython.c"],
+    hdrs = [
+        "PythonSupport/include/PluginPython.h",
+        "//third-party/python-ios:PythonHeaders",
     ],
-    outs = ["PluginBootstrap.swift"],
-    cmd = """
-        python3 $(location generate_bootstrap.py) \\
-            --source=$(location js/bootstrap.js) \\
-            --out=$(OUTS)
-    """,
+    includes = [
+        "PythonSupport/include",
+        "../../third-party/python-ios/Python.xcframework/ios-arm64/Python.framework/Headers",
+    ],
+    copts = ["-fno-objc-arc"],
+    sdk_frameworks = ["Foundation"],
+    deps = [
+        "//third-party/python-ios:Python",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -31,29 +54,16 @@ swift_library(
     module_name = "ExteraPluginKit",
     srcs = glob([
         "Sources/**/*.swift",
-    ]) + [
-        ":PluginBootstrap.swift",
-    ],
+    ]),
     copts = [
         "-warnings-as-errors",
     ],
-    # JavaScriptCore and UniformTypeIdentifiers are OS frameworks, reached
-    # through `import` and autolinked like every other system framework in this
-    # repository; nothing is bundled and the IPA does not grow.
+    linkopts = [
+        "-framework",
+        "NaturalLanguage",
+    ],
     deps = [
-        # `PluginRuntime` is the only file that needs the app's account/transport
-        # side; `PluginManager`/`PluginStore`/`PluginLoader` stay Foundation plus
-        # JavaScriptCore. TelegramUI is deliberately absent: it depends on this
-        # module, so importing it here would be a cycle.
-        "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
-        "//submodules/Display:Display",
-        "//submodules/ItemListUI:ItemListUI",
-        "//submodules/TelegramCore:TelegramCore",
-        "//submodules/TelegramPresentationData:TelegramPresentationData",
-        "//submodules/PresentationDataUtils:PresentationDataUtils",
-        "//submodules/AccountContext:AccountContext",
-        "//submodules/UndoUI:UndoUI",
-        "//submodules/TextFormat:TextFormat",
+        ":PluginPython",
     ],
     visibility = [
         "//visibility:public",
