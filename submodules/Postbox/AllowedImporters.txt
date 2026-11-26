@@ -86,8 +86,10 @@ submodules/TelegramUI/Sources/CreateGroupController.swift
 submodules/TelegramUI/Sources/DocumentPreviewController.swift
 submodules/TelegramUI/Sources/FetchCachedRepresentations.swift
 submodules/TelegramUI/Sources/InChatPrefetchManager.swift
+submodules/TelegramUI/Sources/PluginBootstrap.swift
 submodules/TelegramUI/Sources/StoreDownloadedMedia.swift
 submodules/TelegramUI/Sources/TransformOutgoingMessageMedia.swift
+submodules/TelegramUIPreferences/Sources/RenderedTotalUnreadCount.swift
 submodules/TelegramUniversalVideoContent/Sources/HLSVideoContent.swift
 submodules/TelegramUniversalVideoContent/Sources/HLSVideoJSNativeContentNode.swift
 submodules/TelegramUniversalVideoContent/Sources/NativeVideoContent.swift
@@ -96,5 +98,3 @@ submodules/TelegramUniversalVideoContent/Sources/SystemVideoContent.swift
 submodules/TelegramUniversalVideoContent/Sources/WebEmbedVideoContent.swift
 submodules/TemporaryCachedPeerDataManager/Sources/ChannelMemberCategoryListContext.swift
 submodules/TemporaryCachedPeerDataManager/Sources/PeerChannelMemberCategoriesContextsManager.swift
-submodules/TelegramUI/Sources/PluginBootstrap.swift
-submodules/TelegramUIPreferences/Sources/RenderedTotalUnreadCount.swift
