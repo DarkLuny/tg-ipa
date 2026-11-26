@@ -32,9 +32,13 @@ apple_resource_bundle(
 # `isAvailable == false`; see README.md for adding Python-Apple-support.
 objc_library(
     name = "PluginPython",
-    srcs = ["PythonSupport/src/PluginPython.c"],
+    srcs = [
+        "PythonSupport/src/PluginPython.c",
+        "PythonSupport/src/PluginInvocation.m",
+    ],
     hdrs = [
         "PythonSupport/include/PluginPython.h",
+        "PythonSupport/include/PluginInvocation.h",
         "//third-party/python-ios:PythonHeaders",
     ],
     includes = [

@@ -1,6 +1,7 @@
 ﻿import Foundation
 import ObjectiveC
 import CoreFoundation
+import ExteraPython
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -44,14 +45,14 @@ public final class PluginObjCRuntime: @unchecked Sendable {
     }
 
     private final class ParamState {
-        let invocation: NSInvocation
+        let invocation: PluginInvocation
         let entry: HookEntry
         var result: Any?
         var originalRan = false
         var skipped = false
         var extras: [String: Any] = [:]
 
-        init(invocation: NSInvocation, entry: HookEntry) {
+        init(invocation: PluginInvocation, entry: HookEntry) {
             self.invocation = invocation
             self.entry = entry
         }
@@ -226,8 +227,8 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         self.lock.unlock()
 
         let selector = NSSelectorFromString("forwardInvocation:")
-        let block: @convention(block) (AnyObject, NSInvocation) -> Void = { [weak self] target, invocation in
-            self?.handleForward(target: target, invocation: invocation)
+        let block: @convention(block) (AnyObject, AnyObject) -> Void = { [weak self] target, invocation in
+            self?.handleForward(target: target, invocation: PluginInvocation.invocation(withObject: invocation))
         }
         let imp = imp_implementationWithBlock(block)
         if class_addMethod(cls, selector, imp, "v@:@") {
@@ -259,7 +260,7 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         return candidates.first { $0.selectorName == selectorName }
     }
 
-    private func handleForward(target: AnyObject, invocation: NSInvocation) {
+    private func handleForward(target: AnyObject, invocation: PluginInvocation) {
         let selector = invocation.selector
         guard let entry = self.findEntry(target: target, selector: selector) else {
             self.callOriginalForward(target: target, invocation: invocation)
@@ -310,7 +311,7 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         self.lock.unlock()
     }
 
-    private func forwardOriginalMethod(entry: HookEntry, invocation: NSInvocation) {
+    private func forwardOriginalMethod(entry: HookEntry, invocation: PluginInvocation) {
         self.lock.lock()
         method_setImplementation(entry.method, entry.originalIMP)
         self.lock.unlock()
@@ -322,7 +323,7 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         self.lock.unlock()
     }
 
-    private func callOriginalForward(target: AnyObject, invocation: NSInvocation) {
+    private func callOriginalForward(target: AnyObject, invocation: PluginInvocation) {
         let key: String
         if let cls = object_getClass(target) {
             key = NSStringFromClass(cls)
@@ -333,9 +334,9 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         let original = self.originalForward[key]
         self.lock.unlock()
         if let original {
-            typealias ForwardFunction = @convention(c) (AnyObject, Selector, NSInvocation) -> Void
+            typealias ForwardFunction = @convention(c) (AnyObject, Selector, AnyObject) -> Void
             let function = unsafeBitCast(original, to: ForwardFunction.self)
-            function(target, NSSelectorFromString("forwardInvocation:"), invocation)
+            function(target, NSSelectorFromString("forwardInvocation:"), invocation.rawInvocation as AnyObject)
         } else if let object = target as? NSObject {
             object.doesNotRecognizeSelector(invocation.selector)
         }
@@ -487,7 +488,7 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         return false
     }
 
-    private func buildParam(id: String, target: AnyObject, invocation: NSInvocation, entry: HookEntry, result: Any?) -> [String: Any] {
+    private func buildParam(id: String, target: AnyObject, invocation: PluginInvocation, entry: HookEntry, result: Any?) -> [String: Any] {
         let signature = invocation.methodSignature
         var arguments: [Any] = []
         for index in 2 ..< signature.numberOfArguments {
@@ -509,11 +510,11 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         return value
     }
 
-    private func readArgument(invocation: NSInvocation, index: Int, type: UnsafePointer<CChar>) -> Any {
+    private func readArgument(invocation: PluginInvocation, index: Int, type: UnsafePointer<CChar>) -> Any {
         let encoding = String(cString: type)
         if encoding.hasPrefix("@") {
             var object: AnyObject?
-            invocation.getArgument(&object, at: index)
+            withUnsafeMutablePointer(to: &object) { invocation.getArgument(UnsafeMutableRawPointer($0), at: index) }
             if let object {
                 return PluginHostAPI.shared.descriptor(for: object)
             }
@@ -521,38 +522,38 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         }
         if encoding == "i" || encoding == "I" {
             var value: Int32 = 0
-            invocation.getArgument(&value, at: index)
+            withUnsafeMutablePointer(to: &value) { invocation.getArgument(UnsafeMutableRawPointer($0), at: index) }
             return Int(value)
         }
         if encoding == "q" || encoding == "Q" || encoding == "l" || encoding == "L" {
             var value: Int64 = 0
-            invocation.getArgument(&value, at: index)
+            withUnsafeMutablePointer(to: &value) { invocation.getArgument(UnsafeMutableRawPointer($0), at: index) }
             return value
         }
         if encoding == "B" || encoding == "c" || encoding == "C" {
             var value: Int8 = 0
-            invocation.getArgument(&value, at: index)
+            withUnsafeMutablePointer(to: &value) { invocation.getArgument(UnsafeMutableRawPointer($0), at: index) }
             return value != 0
         }
         if encoding == "d" {
             var value: Double = 0
-            invocation.getArgument(&value, at: index)
+            withUnsafeMutablePointer(to: &value) { invocation.getArgument(UnsafeMutableRawPointer($0), at: index) }
             return value
         }
         if encoding == "f" {
             var value: Float = 0
-            invocation.getArgument(&value, at: index)
+            withUnsafeMutablePointer(to: &value) { invocation.getArgument(UnsafeMutableRawPointer($0), at: index) }
             return Double(value)
         }
         return NSNull()
     }
 
-    private func readResult(invocation: NSInvocation) -> Any? {
+    private func readResult(invocation: PluginInvocation) -> Any? {
         let signature = invocation.methodSignature
         let encoding = String(cString: signature.methodReturnType)
         if encoding.hasPrefix("@") {
             var object: AnyObject?
-            invocation.getReturnValue(&object)
+            withUnsafeMutablePointer(to: &object) { invocation.getReturnValue(UnsafeMutableRawPointer($0)) }
             if let object {
                 return PluginHostAPI.shared.descriptor(for: object)
             }
@@ -560,27 +561,27 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         }
         if encoding == "i" || encoding == "I" {
             var value: Int32 = 0
-            invocation.getReturnValue(&value)
+            withUnsafeMutablePointer(to: &value) { invocation.getReturnValue(UnsafeMutableRawPointer($0)) }
             return Int(value)
         }
         if encoding == "q" || encoding == "Q" || encoding == "l" || encoding == "L" {
             var value: Int64 = 0
-            invocation.getReturnValue(&value)
+            withUnsafeMutablePointer(to: &value) { invocation.getReturnValue(UnsafeMutableRawPointer($0)) }
             return value
         }
         if encoding == "B" || encoding == "c" || encoding == "C" {
             var value: Int8 = 0
-            invocation.getReturnValue(&value)
+            withUnsafeMutablePointer(to: &value) { invocation.getReturnValue(UnsafeMutableRawPointer($0)) }
             return value != 0
         }
         if encoding == "d" {
             var value: Double = 0
-            invocation.getReturnValue(&value)
+            withUnsafeMutablePointer(to: &value) { invocation.getReturnValue(UnsafeMutableRawPointer($0)) }
             return value
         }
         if encoding == "f" {
             var value: Float = 0
-            invocation.getReturnValue(&value)
+            withUnsafeMutablePointer(to: &value) { invocation.getReturnValue(UnsafeMutableRawPointer($0)) }
             return Double(value)
         }
         return nil
@@ -592,24 +593,24 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         if encoding.hasPrefix("@") {
             let object = PluginObjCRuntime.bridgeObject(value)
             var pointer = object
-            state.invocation.setReturnValue(&pointer, length: MemoryLayout<AnyObject?>.size)
+            withUnsafeMutablePointer(to: &pointer) { state.invocation.setReturnValue(UnsafeMutableRawPointer($0)) }
             return
         }
         if encoding == "i" || encoding == "I" {
             var number = Int32((value as? NSNumber)?.intValue ?? 0)
-            state.invocation.setReturnValue(&number, length: MemoryLayout<Int32>.size)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setReturnValue(UnsafeMutableRawPointer($0)) }
         } else if encoding == "q" || encoding == "Q" || encoding == "l" || encoding == "L" {
             var number = Int64((value as? NSNumber)?.int64Value ?? 0)
-            state.invocation.setReturnValue(&number, length: MemoryLayout<Int64>.size)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setReturnValue(UnsafeMutableRawPointer($0)) }
         } else if encoding == "B" || encoding == "c" || encoding == "C" {
             var number = Int8((value as? NSNumber)?.boolValue == true ? 1 : 0)
-            state.invocation.setReturnValue(&number, length: MemoryLayout<Int8>.size)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setReturnValue(UnsafeMutableRawPointer($0)) }
         } else if encoding == "d" {
             var number = (value as? NSNumber)?.doubleValue ?? 0
-            state.invocation.setReturnValue(&number, length: MemoryLayout<Double>.size)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setReturnValue(UnsafeMutableRawPointer($0)) }
         } else if encoding == "f" {
             var number = Float((value as? NSNumber)?.doubleValue ?? 0)
-            state.invocation.setReturnValue(&number, length: MemoryLayout<Float>.size)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setReturnValue(UnsafeMutableRawPointer($0)) }
         }
     }
 

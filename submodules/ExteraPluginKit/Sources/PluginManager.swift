@@ -1,6 +1,11 @@
 ﻿import Foundation
 import UIKit
 
+// The plugin callbacks use `Result<_, String>` to surface host errors. String
+// does not conform to Error in the standard library; opt in once here so the
+// existing plugin-facing API stays source-compatible.
+extension String: @retroactive Error {}
+
 public struct PluginEntity: Sendable {
     public var type: String
     public var offset: Int

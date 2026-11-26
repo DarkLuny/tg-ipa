@@ -106,7 +106,7 @@ final class PluginSettingsTranslation {
         }
 
         if self.detectedLanguage == nil, !self.detecting, !unique.isEmpty {
-            self.detect(Array(unique.joined(separator: "\n").prefix(2000)))
+            self.detect(String(unique.joined(separator: "\n").prefix(2000)))
         }
 
         guard self.enabled else {

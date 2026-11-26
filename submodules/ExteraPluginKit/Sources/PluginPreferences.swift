@@ -28,7 +28,7 @@ public final class PluginPreferences {
         return self.defaults.object(forKey: key) as? Bool ?? defaultValue
     }
 
-    private func setBool(_ value: Bool, for key: String) {
+    private func setBool(_ value: Bool, forKey key: String) {
         self.defaults.set(value, forKey: key)
     }
 
