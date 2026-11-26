@@ -244,3 +244,4 @@ submodules/TranslateUI/Sources/ChatTranslation.swift
 submodules/UndoUI/Sources/UndoOverlayControllerNode.swift
 submodules/WallpaperBackgroundNode/Sources/WallpaperBackgroundNode.swift
 submodules/WallpaperResources/Sources/WallpaperResources.swift
+submodules/TelegramUI/Sources/PluginBootstrap.swift
