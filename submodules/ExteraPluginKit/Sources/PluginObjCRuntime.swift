@@ -228,7 +228,7 @@ public final class PluginObjCRuntime: @unchecked Sendable {
 
         let selector = NSSelectorFromString("forwardInvocation:")
         let block: @convention(block) (AnyObject, AnyObject) -> Void = { [weak self] target, invocation in
-            self?.handleForward(target: target, invocation: PluginInvocation.invocation(withObject: invocation))
+            self?.handleForward(target: target, invocation: PluginInvocationFromObject(invocation))
         }
         let imp = imp_implementationWithBlock(block)
         if class_addMethod(cls, selector, imp, "v@:@") {
@@ -677,22 +677,22 @@ public final class PluginObjCRuntime: @unchecked Sendable {
         let encoding = String(cString: signature.getArgumentType(at: argumentIndex))
         if encoding.hasPrefix("@") {
             var object = PluginObjCRuntime.bridgeObject(value)
-            state.invocation.setArgument(&object, at: argumentIndex)
+            withUnsafeMutablePointer(to: &object) { state.invocation.setArgument(UnsafeMutableRawPointer($0), at: argumentIndex) }
         } else if encoding == "i" || encoding == "I" {
             var number = Int32((value as? NSNumber)?.intValue ?? 0)
-            state.invocation.setArgument(&number, at: argumentIndex)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setArgument(UnsafeMutableRawPointer($0), at: argumentIndex) }
         } else if encoding == "q" || encoding == "Q" || encoding == "l" || encoding == "L" {
             var number = Int64((value as? NSNumber)?.int64Value ?? 0)
-            state.invocation.setArgument(&number, at: argumentIndex)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setArgument(UnsafeMutableRawPointer($0), at: argumentIndex) }
         } else if encoding == "B" || encoding == "c" || encoding == "C" {
             var number = Int8((value as? NSNumber)?.boolValue == true ? 1 : 0)
-            state.invocation.setArgument(&number, at: argumentIndex)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setArgument(UnsafeMutableRawPointer($0), at: argumentIndex) }
         } else if encoding == "d" {
             var number = (value as? NSNumber)?.doubleValue ?? 0
-            state.invocation.setArgument(&number, at: argumentIndex)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setArgument(UnsafeMutableRawPointer($0), at: argumentIndex) }
         } else if encoding == "f" {
             var number = Float((value as? NSNumber)?.doubleValue ?? 0)
-            state.invocation.setArgument(&number, at: argumentIndex)
+            withUnsafeMutablePointer(to: &number) { state.invocation.setArgument(UnsafeMutableRawPointer($0), at: argumentIndex) }
         }
         self.lock.unlock()
         return true

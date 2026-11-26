@@ -1592,7 +1592,7 @@ public final class PluginHostAPI: @unchecked Sendable {
                 return store.filesURL.path
             }
         }
-        if let object = PluginObjCRuntime.shared.object(for: target) {
+        if PluginObjCRuntime.shared.object(for: target) != nil {
             if let result = PluginObjCRuntime.shared.callObject(handle: target, selector: method, arguments: args) {
                 return PluginHostAPI.propertyValue(result)
             }

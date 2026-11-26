@@ -5,6 +5,10 @@
 }
 @end
 
+PluginInvocation *PluginInvocationFromObject(id object) {
+    return [PluginInvocation invocationWithObject:object];
+}
+
 @implementation PluginInvocation
 
 + (instancetype)invocationWithObject:(id)object {
@@ -20,31 +24,35 @@
 }
 
 - (SEL)selector {
-    return self.invocation.selector;
+    return _invocation.selector;
 }
 
 - (NSMethodSignature *)methodSignature {
-    return self.invocation.methodSignature;
+    return _invocation.methodSignature;
 }
 
 - (id)rawInvocation {
-    return self.invocation;
+    return _invocation;
 }
 
 - (void)getArgument:(void *)buffer atIndex:(NSInteger)index {
-    [self.invocation getArgument:buffer atIndex:index];
+    [_invocation getArgument:buffer atIndex:index];
+}
+
+- (void)setArgument:(void *)buffer atIndex:(NSInteger)index {
+    [_invocation setArgument:buffer atIndex:index];
 }
 
 - (void)setReturnValue:(void *)buffer {
-    [self.invocation setReturnValue:buffer];
+    [_invocation setReturnValue:buffer];
 }
 
 - (void)getReturnValue:(void *)buffer {
-    [self.invocation getReturnValue:buffer];
+    [_invocation getReturnValue:buffer];
 }
 
 - (void)invoke {
-    [self.invocation invoke];
+    [_invocation invoke];
 }
 
 @end

@@ -332,7 +332,7 @@ public final class PluginCatalogViewController: UITableViewController {
     private func showError(_ error: Error) {
         let alert = UIAlertController(
             title: "Catalog error",
-            message: (error as? PluginCatalogError)?.description ?? "\(error)",
+            message: error.description,
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "OK", style: .default))
@@ -959,7 +959,7 @@ public final class PluginCatalogRepositoryViewController: UITableViewController 
                 case let .failure(error):
                     let alert = UIAlertController(
                         title: "Download failed",
-                        message: (error as? PluginCatalogError)?.description ?? "\(error)",
+                        message: error.description,
                         preferredStyle: .alert
                     )
                     alert.addAction(UIAlertAction(title: "OK", style: .default))
@@ -1004,7 +1004,7 @@ public final class PluginCatalogRepositoryViewController: UITableViewController 
             title: title,
             subtitle: "\(version) by \(author)",
             report: report,
-            installTitle: state == .update ? "Update" : (state == .installed ? "Reinstall" : "Install"),
+            installTitle: self.state(for: plugin) == .update ? "Update" : (self.state(for: plugin) == .installed ? "Reinstall" : "Install"),
             onInstall: nil,
             requirements: requirements.isEmpty ? (parsed?.requirements ?? []) : requirements,
             trustedSource: true,

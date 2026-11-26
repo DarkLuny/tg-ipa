@@ -2,6 +2,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class PluginInvocation;
+
+PluginInvocation *PluginInvocationFromObject(id object);
+
 /// Swift-visible wrapper around NSInvocation.
 ///
 /// `NSInvocation` is marked unavailable in Swift on iOS, but the Objective-C
@@ -20,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)init NS_UNAVAILABLE;
 
 - (void)getArgument:(void *)buffer atIndex:(NSInteger)index;
+- (void)setArgument:(void *)buffer atIndex:(NSInteger)index;
 - (void)setReturnValue:(void *)buffer;
 - (void)getReturnValue:(void *)buffer;
 - (void)invoke;
