@@ -4327,7 +4327,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         return WalletConnectScreen(context: context, walletContext: walletContext, request: request, cancelled: cancelled, connect: connect)
     }
 
-    public func makeWalletTransferScreen(context: AccountContext, walletContext: WalletContext, request: WalletContext.TonConnectOperationRequest, cancelled: @escaping () -> Void, confirm: @escaping (@escaping (Result<Void, WalletContext.WalletError>) -> Void) -> Void) -> ViewController {
+    public func makeWalletTransferScreen(context: AccountContext, walletContext: WalletContext, request: WalletContext.TonConnectOperationRequest, requester: EnginePeer?, ignoresTouchesFor: Double, cancelled: @escaping () -> Void, confirm: @escaping (@escaping (Result<Void, WalletContext.WalletError>) -> Void) -> Void) -> ViewController {
         return WalletTransferScreen(context: context, walletContext: walletContext, request: request, cancelled: cancelled, confirm: confirm)
     }
 

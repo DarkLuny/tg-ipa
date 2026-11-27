@@ -150,18 +150,24 @@ public final class ChatControllerInteraction: ChatControllerInteractionProtocol 
     public struct OpenUrl {
         public var url: String
         public var concealed: Bool
+        public var forceConcealed: Bool
         public var external: Bool?
         public var message: EngineRawMessage?
         public var allowInlineWebpageResolution: Bool
         public var progress: Promise<Bool>?
+        public var fullUrl: Bool
+        public var alertDisplayUpdated: ((ViewController?) -> Void)?
         
-        public init(url: String, concealed: Bool, external: Bool? = nil, message: EngineRawMessage? = nil, allowInlineWebpageResolution: Bool = false, progress: Promise<Bool>? = nil) {
+        public init(url: String, concealed: Bool, forceConcealed: Bool = false, external: Bool? = nil, message: EngineRawMessage? = nil, allowInlineWebpageResolution: Bool = false, progress: Promise<Bool>? = nil, fullUrl: Bool = false, alertDisplayUpdated: ((ViewController?) -> Void)? = nil) {
             self.url = url
             self.concealed = concealed
+            self.forceConcealed = forceConcealed
             self.external = external
             self.message = message
             self.allowInlineWebpageResolution = allowInlineWebpageResolution
             self.progress = progress
+            self.fullUrl = fullUrl
+            self.alertDisplayUpdated = alertDisplayUpdated
         }
     }
     
