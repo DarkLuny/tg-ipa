@@ -89,9 +89,11 @@ public struct ExperimentalUISettings: Codable, Equatable {
     public var coreListScrollTrace: Bool
     public var chatMediaEditorLegacy: Bool
     public var chatSideListLegacy: Bool
+    public var mediaGridLegacy: Bool
+    public var sharedMediaGridLegacy: Bool
     public var respectSystemMicrophone: Bool
     public var springSendAnimation: Bool
-    /// Debug Settings ▸ "Wallet: fake transfers", offered to dev accounts only (and only honoured for them): a send
+    /// Debug Settings в–ё "Wallet: fake transfers", offered to dev accounts only (and only honoured for them): a send
     /// from the transfer form sends nothing and closes as a registered transfer would, against a fixed balance.
     public var fakeWalletTransfers: Bool
     public var showCrashReportAlerts: Bool?
@@ -154,6 +156,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
             coreListScrollTrace: false,
             chatMediaEditorLegacy: false,
             chatSideListLegacy: false,
+            mediaGridLegacy: false,
+            sharedMediaGridLegacy: false,
             respectSystemMicrophone: false,
             springSendAnimation: false,
             fakeWalletTransfers: false,
@@ -217,6 +221,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         coreListScrollTrace: Bool,
         chatMediaEditorLegacy: Bool,
         chatSideListLegacy: Bool,
+        mediaGridLegacy: Bool,
+        sharedMediaGridLegacy: Bool,
         respectSystemMicrophone: Bool,
         springSendAnimation: Bool,
         fakeWalletTransfers: Bool,
@@ -278,6 +284,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.coreListScrollTrace = coreListScrollTrace
         self.chatMediaEditorLegacy = chatMediaEditorLegacy
         self.chatSideListLegacy = chatSideListLegacy
+        self.mediaGridLegacy = mediaGridLegacy
+        self.sharedMediaGridLegacy = sharedMediaGridLegacy
         self.respectSystemMicrophone = respectSystemMicrophone
         self.springSendAnimation = springSendAnimation
         self.fakeWalletTransfers = fakeWalletTransfers
@@ -345,6 +353,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         self.coreListScrollTrace = try container.decodeIfPresent(Bool.self, forKey: "coreListScrollTrace") ?? false
         self.chatMediaEditorLegacy = try container.decodeIfPresent(Bool.self, forKey: "chatMediaEditorLegacy") ?? false
         self.chatSideListLegacy = try container.decodeIfPresent(Bool.self, forKey: "chatSideListLegacy") ?? false
+        self.mediaGridLegacy = try container.decodeIfPresent(Bool.self, forKey: "mediaGridLegacy") ?? false
+        self.sharedMediaGridLegacy = try container.decodeIfPresent(Bool.self, forKey: "sharedMediaGridLegacy") ?? false
         self.respectSystemMicrophone = try container.decodeIfPresent(Bool.self, forKey: "respectSystemMicrophone") ?? false
         self.springSendAnimation = try container.decodeIfPresent(Bool.self, forKey: "springSendAnimation") ?? false
         self.fakeWalletTransfers = try container.decodeIfPresent(Bool.self, forKey: "fakeWalletTransfers") ?? false
@@ -410,6 +420,8 @@ public struct ExperimentalUISettings: Codable, Equatable {
         try container.encodeIfPresent(self.coreListScrollTrace, forKey: "coreListScrollTrace")
         try container.encodeIfPresent(self.chatMediaEditorLegacy, forKey: "chatMediaEditorLegacy")
         try container.encodeIfPresent(self.chatSideListLegacy, forKey: "chatSideListLegacy")
+        try container.encodeIfPresent(self.mediaGridLegacy, forKey: "mediaGridLegacy")
+        try container.encodeIfPresent(self.sharedMediaGridLegacy, forKey: "sharedMediaGridLegacy")
         try container.encodeIfPresent(self.respectSystemMicrophone, forKey: "respectSystemMicrophone")
         try container.encodeIfPresent(self.springSendAnimation, forKey: "springSendAnimation")
         try container.encodeIfPresent(self.fakeWalletTransfers, forKey: "fakeWalletTransfers")
