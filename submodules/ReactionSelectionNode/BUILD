@@ -29,6 +29,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         ":ReactionContextGeometry",
         "//submodules/TelegramCore:TelegramCore",
         "//submodules/AsyncDisplayKit:AsyncDisplayKit",
@@ -73,6 +74,7 @@ swift_library(
         "Tests/**/*.swift",
     ]),
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         ":ReactionContextGeometry",
     ],
 )
@@ -90,6 +92,7 @@ ios_unit_test(
     minimum_os_version = "15.0",
     runner = ":ReactionContextGeometryTestRunner",
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         ":ReactionContextGeometryTestsLib",
     ],
     visibility = [

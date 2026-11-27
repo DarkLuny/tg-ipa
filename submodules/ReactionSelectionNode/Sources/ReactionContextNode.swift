@@ -3,6 +3,7 @@ import UIKit
 import AsyncDisplayKit
 import Display
 import AnimatedStickerNode
+import LottieSettings
 import TelegramCore
 import TelegramPresentationData
 import AccountContext
@@ -698,7 +699,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
                     return
                 }
                 var filteredFiles: [TelegramMediaFile] = []
-                let filterList: [String] = ["😖", "😫", "🫠", "😨", "❓"]
+                let filterList: [String] = ["рџ–", "рџ«", "рџ« ", "рџЁ", "вќ“"]
                 for featuredEmojiPack in items.lazy.map({ $0.contents.get(FeaturedStickerPackItem.self)! }) {
                     for item in featuredEmojiPack.topItems {
                         if let alt = item.file.customEmojiAlt {
@@ -2839,7 +2840,7 @@ public final class ReactionContextNode: ASDisplayNode, ASScrollViewDelegate {
         }
         
         if let additionalAnimation = additionalAnimation {
-            let additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl()
+            let additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
             additionalAnimationNode = additionalAnimationNodeValue
             if self.didTriggerExpandedReaction {
                 if incomingMessage {
@@ -3555,9 +3556,9 @@ public final class StandaloneReactionAnimation: ASDisplayNode {
         if let additionalAnimationResource {
             let additionalAnimationNodeValue: AnimatedStickerNode
             if self.useDirectRendering {
-                additionalAnimationNodeValue = DirectAnimatedStickerNode()
+                additionalAnimationNodeValue = DirectAnimatedStickerNode(lottieSettings: .noAccountFallback)
             } else {
-                additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl()
+                additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
             }
             additionalAnimationNode = additionalAnimationNodeValue
             
@@ -3586,9 +3587,9 @@ public final class StandaloneReactionAnimation: ASDisplayNode {
             if let effectURL {
                 let additionalAnimationNodeValue: AnimatedStickerNode
                 if self.useDirectRendering {
-                    additionalAnimationNodeValue = DirectAnimatedStickerNode()
+                    additionalAnimationNodeValue = DirectAnimatedStickerNode(lottieSettings: .noAccountFallback)
                 } else {
-                    additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl()
+                    additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
                 }
                 additionalAnimationNode = additionalAnimationNodeValue
                 
@@ -3994,7 +3995,7 @@ public final class StandaloneReactionAnimation: ASDisplayNode {
         }
         
         if let additionalAnimation = additionalAnimation {
-            let additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl()
+            let additionalAnimationNodeValue = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
             additionalAnimationNode = additionalAnimationNodeValue
             if didTriggerExpandedReaction {
                 if incomingMessage {
