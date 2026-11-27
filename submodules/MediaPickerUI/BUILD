@@ -31,6 +31,7 @@ swift_library(
         "//submodules/ContextUI:ContextUI",
         "//submodules/MosaicLayout:MosaicLayout",
         "//submodules/AnimatedStickerNode:AnimatedStickerNode",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/TelegramAnimatedStickerNode:TelegramAnimatedStickerNode",
         "//submodules/SolidRoundedButtonNode:SolidRoundedButtonNode",
         "//submodules/PresentationDataUtils:PresentationDataUtils",
