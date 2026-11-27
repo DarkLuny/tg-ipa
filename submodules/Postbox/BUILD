@@ -31,6 +31,7 @@ package_group(
         "//submodules/TelegramCore",
         "//submodules/TelegramPermissionsUI",
         "//submodules/TelegramPresentationData",
+        "//submodules/TelegramUIPreferences",
         "//submodules/TelegramUI",
         "//submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode",
         "//submodules/TelegramUI/Components/Chat/ChatRecentActionsController",
