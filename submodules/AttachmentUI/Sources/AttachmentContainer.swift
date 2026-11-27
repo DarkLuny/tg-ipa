@@ -95,6 +95,36 @@ final class AttachmentContainer: ASDisplayNode, ASGestureRecognizerDelegate {
         }
     }
     
+    private var pillIsLight = false
+    private weak var pillIsLightOwner: AnyObject?
+
+    private var pillColor: UIColor {
+        if self.pillIsLight {
+            return UIColor(white: 1.0, alpha: 0.45)
+        }
+        return self.presentationData.theme.list.itemPrimaryTextColor.withMultipliedAlpha(self.presentationData.theme.overallDarkAppearance ? 0.2 : 0.07)
+    }
+
+    func updatePillIsLight(_ isLight: Bool, owner: AnyObject, transition: ContainedViewLayoutTransition) {
+        self.pillIsLightOwner = isLight ? owner : nil
+        self.setPillIsLight(isLight, transition: transition)
+    }
+
+    private func setPillIsLight(_ isLight: Bool, transition: ContainedViewLayoutTransition) {
+        guard self.pillIsLight != isLight else {
+            return
+        }
+        self.pillIsLight = isLight
+        let color = self.pillColor
+        if case let .animated(duration, _) = transition {
+            UIView.animate(withDuration: duration, animations: {
+                self.pillView.tintColor = color
+            })
+        } else {
+            self.pillView.tintColor = color
+        }
+    }
+    
     private var panGestureRecognizer: UIPanGestureRecognizer?
     
     var isPanningUpdated: (Bool) -> Void = { _ in }

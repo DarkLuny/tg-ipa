@@ -4118,6 +4118,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         return mediaPickerController(context: context, hasSearch: hasSearch, completion: completion)
     }
     
+    public func makeChatMediaGalleryController(context: AccountContext, parameters: ChatMediaGalleryParameters) -> ViewController? {
+        return makeChatMediaEditorGalleryController(context: context, parameters: parameters)
+    }
+    
     public func makeStoryMediaPickerScreen(context: AccountContext, isDark: Bool, forCollage: Bool, selectionLimit: Int?, getSourceRect: @escaping () -> CGRect, completion: @escaping (Any, UIView, CGRect, UIImage?, @escaping (Bool?) -> (UIView, CGRect)?, @escaping () -> Void) -> Void, multipleCompletion: @escaping ([Any], Bool) -> Void, dismissed: @escaping () -> Void, groupsPresented: @escaping () -> Void) -> ViewController {
         return storyMediaPickerController(context: context, isDark: isDark, forCollage: forCollage, selectionLimit: selectionLimit, getSourceRect: getSourceRect, completion: completion, multipleCompletion: multipleCompletion, dismissed: dismissed, groupsPresented: groupsPresented)
     }
