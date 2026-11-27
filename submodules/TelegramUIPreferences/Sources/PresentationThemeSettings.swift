@@ -557,13 +557,17 @@ public struct PresentationChatBubbleSettings: Codable, Equatable {
     public var mainRadius: Int32
     public var auxiliaryRadius: Int32
     public var mergeBubbleCorners: Bool
+    public var bubbleMode: Bool
+    public var serifMessageFont: Bool
     
     public static var `default`: PresentationChatBubbleSettings = PresentationChatBubbleSettings(mainRadius: 16, auxiliaryRadius: 8, mergeBubbleCorners: true)
     
-    public init(mainRadius: Int32, auxiliaryRadius: Int32, mergeBubbleCorners: Bool) {
+    public init(mainRadius: Int32, auxiliaryRadius: Int32, mergeBubbleCorners: Bool, bubbleMode: Bool = true, serifMessageFont: Bool = false) {
         self.mainRadius = mainRadius
         self.auxiliaryRadius = auxiliaryRadius
         self.mergeBubbleCorners = mergeBubbleCorners
+        self.bubbleMode = bubbleMode
+        self.serifMessageFont = serifMessageFont
     }
     
     public init(from decoder: Decoder) throws {
@@ -572,6 +576,8 @@ public struct PresentationChatBubbleSettings: Codable, Equatable {
         self.mainRadius = try container.decodeIfPresent(Int32.self, forKey: "mainRadius") ?? 16
         self.auxiliaryRadius = try container.decodeIfPresent(Int32.self, forKey: "auxiliaryRadius") ?? 8
         self.mergeBubbleCorners = (try container.decodeIfPresent(Int32.self, forKey: "mergeBubbleCorners") ?? 1) != 0
+        self.bubbleMode = (try container.decodeIfPresent(Int32.self, forKey: "bubbleMode") ?? 1) != 0
+        self.serifMessageFont = (try container.decodeIfPresent(Int32.self, forKey: "smf") ?? 0) != 0
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -580,6 +586,12 @@ public struct PresentationChatBubbleSettings: Codable, Equatable {
         try container.encode(self.mainRadius, forKey: "mainRadius")
         try container.encode(self.auxiliaryRadius, forKey: "auxiliaryRadius")
         try container.encode((self.mergeBubbleCorners ? 1 : 0) as Int32, forKey: "mergeBubbleCorners")
+        if !self.bubbleMode {
+            try container.encode(0 as Int32, forKey: "bubbleMode")
+        }
+        if self.serifMessageFont {
+            try container.encode(1 as Int32, forKey: "smf")
+        }
     }
 }
 
