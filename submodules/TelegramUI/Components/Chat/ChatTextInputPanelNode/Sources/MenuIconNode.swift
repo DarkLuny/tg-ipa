@@ -4,6 +4,7 @@ import Display
 import AsyncDisplayKit
 import TelegramPresentationData
 import ManagedAnimationNode
+import LottieSettings
 
 enum MenuIconNodeState: Equatable {
     case menu
@@ -16,7 +17,7 @@ final class MenuIconNode: ManagedAnimationNode {
     var iconState: MenuIconNodeState = .menu
     
     init() {
-        super.init(size: CGSize(width: 30.0, height: 30.0))
+        super.init(size: CGSize(width: 30.0, height: 30.0), lottieSettings: .noAccountFallback)
         
         self.trackTo(item: ManagedAnimationItem(source: .local("anim_menuclose"), frames: .range(startFrame: 0, endFrame: 0), duration: 0.01))
     }

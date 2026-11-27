@@ -482,6 +482,7 @@ public protocol PresentationGroupCall: AnyObject {
     var myAudioLevel: Signal<Float, NoError> { get }
     var myAudioLevelAndSpeaking: Signal<(Float, Bool), NoError> { get }
     var isMuted: Signal<Bool, NoError> { get }
+    var isMicrophoneAccessGranted: Bool { get }
     var isNoiseSuppressionEnabled: Signal<Bool, NoError> { get }
     
     var e2eEncryptionKeyHash: Signal<Data?, NoError> { get }
@@ -608,4 +609,11 @@ public protocol PresentationCallManager: AnyObject {
         endCurrentIfAny: Bool,
         unmuteByDefault: Bool
     ) -> JoinGroupCallManagerResult
+}
+
+public extension PresentationGroupCall {
+    /// This tree does not gate the button on the system microphone permission; the call keeps its own mute state.
+    var isMicrophoneAccessGranted: Bool {
+        return true
+    }
 }

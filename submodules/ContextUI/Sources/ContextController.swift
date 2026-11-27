@@ -315,10 +315,18 @@ public final class ContextControllerReferenceViewInfo {
     public let customPosition: CGPoint?
     public let actionsPosition: ActionsPosition
     public let centersMorphedActions: Bool
+    public let morphedActionsAlignment: MorphedActionsAlignment
     
-    public init(referenceView: UIView, contentAreaInScreenSpace: CGRect, insets: UIEdgeInsets = UIEdgeInsets(), customPosition: CGPoint? = nil, actionsPosition: ActionsPosition = .bottom, sourcePath: UIBezierPath? = nil, centersMorphedActions: Bool = false) {
+    public enum MorphedActionsAlignment {
+        case automatic
+        case leading
+        case trailing
+    }
+    
+    public init(referenceView: UIView, contentAreaInScreenSpace: CGRect, insets: UIEdgeInsets = UIEdgeInsets(), customPosition: CGPoint? = nil, actionsPosition: ActionsPosition = .bottom, sourcePath: UIBezierPath? = nil, centersMorphedActions: Bool = false, morphedActionsAlignment: MorphedActionsAlignment = .automatic) {
         self.sourcePath = sourcePath
         self.centersMorphedActions = centersMorphedActions
+        self.morphedActionsAlignment = morphedActionsAlignment
         self.referenceView = referenceView
         self.contentAreaInScreenSpace = contentAreaInScreenSpace
         self.insets = insets

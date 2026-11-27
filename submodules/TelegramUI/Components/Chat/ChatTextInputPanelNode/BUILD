@@ -39,6 +39,7 @@ swift_library(
         "//submodules/Pasteboard",
         "//submodules/ChatPresentationInterfaceState",
         "//submodules/ManagedAnimationNode",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/TelegramUI/Components/EditableChatTextNode",
         "//submodules/TelegramUI/Components/EmojiTextAttachmentView",
         "//submodules/Components/LottieAnimationComponent",
