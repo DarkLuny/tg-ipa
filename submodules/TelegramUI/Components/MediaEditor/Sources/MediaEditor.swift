@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreImage
 import Metal
 import MetalKit
 import Vision
@@ -330,6 +331,10 @@ public final class MediaEditor {
     
     public var resultImage: UIImage? {
         return self.renderer.finalRenderedImage()
+    }
+    
+    public func getResultCIImage() -> CIImage? {
+        return self.resultImage.flatMap { CIImage(image: $0) }
     }
     
     public func getResultImage(mirror: Bool) -> UIImage? {
