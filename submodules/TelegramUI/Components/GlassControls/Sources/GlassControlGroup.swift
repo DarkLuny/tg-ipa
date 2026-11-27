@@ -8,6 +8,7 @@ import PlainButtonComponent
 import BundleIconComponent
 import MultilineTextComponent
 import LottieComponent
+import LottieSettings
 
 public final class GlassControlGroupComponent: Component {
     public final class Item: Equatable {
@@ -254,7 +255,8 @@ public final class GlassControlGroupComponent: Component {
                         content: LottieComponent.AppBundleContent(name: name),
                         color: itemForegroundColor,
                         size: CGSize(width: 32.0, height: 32.0),
-                        playOnce: playOnce
+                        playOnce: playOnce,
+                        lottieSettings: .noAccountFallback
                     ))
                 case let .customIcon(_, customIcon, insets):
                     content = customIcon
@@ -358,7 +360,7 @@ func glassControlItemAccessibilityLabel(_ item: GlassControlGroupComponent.Item)
         // A standard navigation glyph reads its name ("Close").
         return ComponentAccessibilityStrings.label(navigationIconName: name)
     case let .animation(name):
-        // The animated "…" glyph opens a menu.
+        // The animated "вЂ¦" glyph opens a menu.
         return name == "anim_morewide" ? ComponentAccessibilityStrings.more : nil
     case .customIcon:
         return nil

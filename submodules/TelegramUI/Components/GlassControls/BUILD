@@ -18,6 +18,7 @@ swift_library(
         "//submodules/Components/BundleIconComponent",
         "//submodules/Components/MultilineTextComponent",
         "//submodules/TelegramUI/Components/LottieComponent",
+        "//submodules/LottieSettings:LottieSettings",
     ],
     visibility = [
         "//visibility:public",
