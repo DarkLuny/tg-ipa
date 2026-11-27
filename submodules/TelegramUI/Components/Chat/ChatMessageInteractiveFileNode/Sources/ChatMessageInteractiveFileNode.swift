@@ -969,8 +969,7 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
                         hasAutoremove: arguments.message.isSelfExpiring,
                         canViewReactionList: canViewMessageReactionList(message: EngineMessage(arguments.topMessage)),
                         animationCache: arguments.controllerInteraction.presentationContext.animationCache,
-                        animationRenderer: arguments.controllerInteraction.presentationContext.animationRenderer,
-                        isDeleted: arguments.attributes.isDeleted
+                        animationRenderer: arguments.controllerInteraction.presentationContext.animationRenderer
                     ))
                 }
                 
