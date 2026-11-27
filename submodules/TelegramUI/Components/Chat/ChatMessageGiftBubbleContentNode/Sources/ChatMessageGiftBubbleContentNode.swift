@@ -15,6 +15,7 @@ import TelegramStringFormatting
 import WallpaperBackgroundNode
 import ReactionSelectionNode
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import AvatarNode
 import ChatControllerInteraction
@@ -206,7 +207,7 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
         self.placeholderNode.isUserInteractionEnabled = false
         self.placeholderNode.alpha = 0.75
         
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
 
         self.buttonNode = HighlightTrackingButtonNode()
         self.buttonNode.clipsToBounds = true
@@ -1656,7 +1657,7 @@ public class ChatMessageGiftBubbleContentNode: ChatMessageBubbleContentNode {
                                         strongSelf.buttonContentNode.layer.animateScale(from: 0.1, to: 1.0, duration: 0.2)
                                     }
                                     
-                                    buttonIconNode = DefaultAnimatedStickerNodeImpl()
+                                    buttonIconNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
                                     buttonIconNode.setup(source: AnimatedStickerNodeLocalFileSource(name: buttonIcon), width: 60, height: 60, playbackMode: .loop, mode: .direct(cachePathPrefix: nil))
                                     strongSelf.buttonContentNode.addSubnode(buttonIconNode)
                                     strongSelf.buttonIconNode = buttonIconNode

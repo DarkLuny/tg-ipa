@@ -22,6 +22,7 @@ swift_library(
         "//submodules/Markdown",
         "//submodules/ShimmerEffect",
         "//submodules/AnimatedStickerNode",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/TelegramAnimatedStickerNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode",
         "//submodules/TelegramUI/Components/Chat/ChatMessageBubbleContentNode",

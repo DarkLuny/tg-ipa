@@ -15,6 +15,7 @@ import ChatMessageBubbleContentNode
 import ChatMessageItemCommon
 import ChatControllerInteraction
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 
 public class ChatMessageBirthdateSuggestionContentNode: ChatMessageBubbleContentNode {
@@ -44,7 +45,7 @@ public class ChatMessageBirthdateSuggestionContentNode: ChatMessageBubbleContent
         self.mediaBackgroundNode.clipsToBounds = true
         self.mediaBackgroundNode.cornerRadius = 27.0
         
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         
         self.subtitleNode = TextNode()
         self.subtitleNode.isUserInteractionEnabled = false

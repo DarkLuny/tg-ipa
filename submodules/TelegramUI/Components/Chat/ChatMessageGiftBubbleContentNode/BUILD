@@ -24,6 +24,7 @@ swift_library(
         "//submodules/WallpaperBackgroundNode",
         "//submodules/ReactionSelectionNode",
         "//submodules/AnimatedStickerNode",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/TelegramAnimatedStickerNode",
         "//submodules/AvatarNode",
         "//submodules/TelegramUI/Components/ChatControllerInteraction",

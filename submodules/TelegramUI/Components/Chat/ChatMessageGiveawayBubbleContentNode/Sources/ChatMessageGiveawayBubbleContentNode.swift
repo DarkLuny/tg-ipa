@@ -12,6 +12,7 @@ import TelegramStringFormatting
 import Markdown
 import ShimmerEffect
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import ChatMessageDateAndStatusNode
 import ChatMessageBubbleContentNode
@@ -84,7 +85,7 @@ public class ChatMessageGiveawayBubbleContentNode: ChatMessageBubbleContentNode,
         self.placeholderNode.isUserInteractionEnabled = false
         self.placeholderNode.alpha = 0.75
         
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         
         self.dateAndStatusNode = ChatMessageDateAndStatusNode()
         self.prizeTitleNode = TextNode()

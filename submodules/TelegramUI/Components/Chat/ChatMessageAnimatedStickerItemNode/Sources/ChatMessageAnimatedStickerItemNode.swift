@@ -14,6 +14,7 @@ import MediaResources
 import StickerResources
 import ContextUI
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import Emoji
 import Markdown
@@ -2411,7 +2412,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
 
         do {
             let pathPrefix = item.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(resource.id))
-            let additionalAnimationNode = DefaultAnimatedStickerNodeImpl()
+            let additionalAnimationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
             additionalAnimationNode.setup(source: source, width: Int(animationSize.width * 1.6), height: Int(animationSize.height * 1.6), playbackMode: .once, mode: .direct(cachePathPrefix: pathPrefix))
             var animationFrame: CGRect
             if isStickerEffect {
