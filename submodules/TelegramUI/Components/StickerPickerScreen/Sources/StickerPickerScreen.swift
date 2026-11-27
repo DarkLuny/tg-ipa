@@ -21,6 +21,7 @@ import EntityKeyboardGifContent
 import CameraButtonComponent
 import BundleIconComponent
 import LottieComponent
+import LottieSettings
 import LottieComponentResourceContent
 import UndoUI
 import TextLoadingEffect
@@ -2253,7 +2254,8 @@ private final class InteractiveStickerButtonContent: Component {
                                 content: LottieComponent.ResourceContent(context: component.context, file: iconFile, attemptSynchronously: true, providesPlaceholder: true),
                                 color: nil,
                                 placeholderColor: UIColor(rgb: 0xffffff, alpha: 0.4),
-                                loop: !["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"].contains(component.iconName ?? "")
+                                loop: !["рџЊ‘", "рџЊ’", "рџЊ“", "рџЊ”", "рџЊ•", "рџЊ–", "рџЊ—", "рџЊ"].contains(component.iconName ?? ""),
+                                lottieSettings: .noAccountFallback
                             )
                         ),
                         environment: {},
@@ -2417,7 +2419,7 @@ private final class InteractiveReactionButtonContent: Component {
             let heartSize = self.heart.update(
                 transition: .immediate,
                 component: AnyComponent(Text(
-                    text: "❤️",
+                    text: "вќ¤пёЏ",
                     font: Font.regular(26.0),
                     color: .white
                 )),
@@ -2754,8 +2756,8 @@ final class StoryStickersContentView: UIView, EmojiCustomContentView {
                         context: self.context,
                         theme: theme,
                         title: stringForTemperature(24),
-                        iconName: "☀️",
-                        iconFile: self.context.animatedEmojiStickersValue["☀️"]?.first?.file._parse(),
+                        iconName: "вЂпёЏ",
+                        iconFile: self.context.animatedEmojiStickersValue["вЂпёЏ"]?.first?.file._parse(),
                         useOpaqueTheme: useOpaqueTheme,
                         tintContainerView: self.tintContainerView
                     )

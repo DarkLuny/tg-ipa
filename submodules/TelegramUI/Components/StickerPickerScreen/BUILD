@@ -34,6 +34,7 @@ swift_library(
         "//submodules/TelegramUI/Components/ChatEntityKeyboardInputNode",
         "//submodules/TelegramUI/Components/ButtonComponent",
         "//submodules/TelegramUI/Components/LottieComponent",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/TelegramUI/Components/LottieComponentResourceContent",
         "//submodules/ChatPresentationInterfaceState",
         "//submodules/TelegramUI/Components/MediaEditor",
