@@ -8,6 +8,7 @@ import SwiftSignalKit
 import TelegramCore
 import Postbox
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import YuvConversion
 import StickerResources
@@ -335,7 +336,7 @@ final class MediaEditorComposerStickerEntity: MediaEditorComposerEntity {
                                     strongSelf.videoFrameSource.set(.single(frameSource))
                                 } else {
                                     let frameSource = QueueLocalObject<AnimatedStickerDirectFrameSource>(queue: queue, generate: {
-                                        return AnimatedStickerDirectFrameSource(queue: queue, data: data, width: Int(fittedDimensions.width), height: Int(fittedDimensions.height), cachePathPrefix: pathPrefix, useMetalCache: false, fitzModifier: nil)!
+                                        return AnimatedStickerDirectFrameSource(queue: queue, data: data, width: Int(fittedDimensions.width), height: Int(fittedDimensions.height), cachePathPrefix: pathPrefix, useMetalCache: false, fitzModifier: nil, lottieSettings: .noAccountFallback)!
                                     })
                                     frameSource.syncWith { frameSource in
                                         strongSelf.frameCount = frameSource.frameCount

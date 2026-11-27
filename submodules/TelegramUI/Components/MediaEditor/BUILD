@@ -66,6 +66,7 @@ swift_library(
         "//submodules/AppBundle",
         "//submodules/TextFormat",
         "//submodules/AnimatedStickerNode",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/TelegramAnimatedStickerNode",
         "//submodules/StickerResources",
         "//submodules/YuvConversion",
