@@ -65,6 +65,7 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
         public let layoutConstants: ChatMessageItemLayoutConstants
         public let constrainedSize: CGSize
         public let controllerInteraction: ChatControllerInteraction
+        public let bubbleStyle: ChatMessageBubbleStyle
         
         public init(
             context: AccountContext,
@@ -88,7 +89,8 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
             isAttachedContentBlock: Bool,
             layoutConstants: ChatMessageItemLayoutConstants,
             constrainedSize: CGSize,
-            controllerInteraction: ChatControllerInteraction
+            controllerInteraction: ChatControllerInteraction,
+            bubbleStyle: ChatMessageBubbleStyle = .bubble
         ) {
             self.context = context
             self.presentationData = presentationData
@@ -112,6 +114,7 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
             self.layoutConstants = layoutConstants
             self.constrainedSize = constrainedSize
             self.controllerInteraction = controllerInteraction
+            self.bubbleStyle = bubbleStyle
         }
     }
     
