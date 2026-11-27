@@ -5,6 +5,7 @@ import TelegramPresentationData
 import ComponentFlow
 import GlassBackgroundComponent
 import ManagedAnimationNode
+import LottieSettings
 import MultilineTextComponent
 import AppBundle
 
@@ -283,10 +284,10 @@ private final class PlayPauseIconNode: ManagedAnimationNode {
     private let duration: Double = 0.35
     private var iconState: PlayPauseIconNodeState = .pause
     
-    override init(size: CGSize) {
+    init(size: CGSize) {
         self.size = size
         
-        super.init(size: size)
+        super.init(size: size, lottieSettings: .noAccountFallback)
         
         self.trackTo(item: ManagedAnimationItem(source: .local("anim_playpause"), frames: .range(startFrame: 41, endFrame: 41), duration: 0.01))
     }

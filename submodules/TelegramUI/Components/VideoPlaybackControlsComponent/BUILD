@@ -17,6 +17,7 @@ swift_library(
         "//submodules/TelegramUI/Components/GlassBackgroundComponent",
         "//submodules/AppBundle",
         "//submodules/ManagedAnimationNode",
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/Components/MultilineTextComponent",
     ],
     visibility = [
