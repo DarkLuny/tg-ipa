@@ -31,6 +31,19 @@ public final class Transaction {
         self.postbox = postbox
     }
     
+    /// Records an edit the update replay received. This tree keeps no recent-edit store, so a fetch whose
+    /// answer predates an edit is not repaired here; the state is still applied by the transaction itself.
+    public func recordMessageEdit(_ message: StoreMessage) {
+        assert(self.queue.isCurrent())
+        assert(!self.disposed)
+    }
+    
+    public func recentMessageEdit(_ id: MessageId, since: Double) -> StoreMessage? {
+        assert(self.queue.isCurrent())
+        assert(!self.disposed)
+        return nil
+    }
+    
     public func keychainEntryForKey(_ key: String) -> Data? {
         assert(self.queue.isCurrent())
 
