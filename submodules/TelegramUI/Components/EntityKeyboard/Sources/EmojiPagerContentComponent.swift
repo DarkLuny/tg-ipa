@@ -3711,7 +3711,8 @@ public final class EmojiPagerContentComponent: Component {
                                 color: foregroundColor,
                                 startingPosition: .begin,
                                 size: CGSize(width: 30.0, height: 30.0),
-                                loop: true
+                                loop: true,
+                                lottieSettings: .noAccountFallback
                             ))))
                         }
 

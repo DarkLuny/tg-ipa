@@ -598,7 +598,8 @@ final class EmojiSearchSearchBarComponent: Component {
                                 context: component.context,
                                 fileId: item.id
                             ),
-                            color: color
+                            color: color,
+                            lottieSettings: .noAccountFallback
                         )),
                         environment: {},
                         containerSize: itemLayout.itemSize

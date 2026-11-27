@@ -12,6 +12,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
         "//submodules/Display:Display",
         "//submodules/ComponentFlow:ComponentFlow",
@@ -72,6 +73,7 @@ swift_library(
         "Tests/**/*.swift",
     ]),
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         ":EntityKeyboard",
         "//submodules/Display:Display",
     ],
@@ -88,6 +90,7 @@ ios_unit_test(
     minimum_os_version = "15.0",
     runner = ":EntityKeyboardTestRunner",
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         ":EntityKeyboardTestsLib",
     ],
     visibility = [

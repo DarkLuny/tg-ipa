@@ -17,6 +17,7 @@ import AudioToolbox
 import SwiftSignalKit
 import GZip
 import LottieBinding
+import LottieSettings
 import AppBundle
 import Lottie
 
@@ -171,7 +172,7 @@ final class EmojiSearchStatusComponent: Component {
         }
         
         init?(content: ContentState, data: Data, displaySize: CGSize, frameRange: ClosedRange<Int>?, previousAnimationState: EmojiSearchStatusAnimationState?) {
-            guard let animationInstance = makeLottieInstance(data: data, fitzModifier: .none, colorReplacements: nil) else {
+            guard let animationInstance = makeLottieInstance(data: data, fitzModifier: .none, colorReplacements: nil, cacheKey: "", settings: .noAccountFallback) else {
                 return nil
             }
             self.content = content
