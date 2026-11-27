@@ -12,6 +12,7 @@ import TelegramCore
 import MultilineTextComponent
 import EmojiStatusComponent
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import StickerResources
 import AvatarBackground
@@ -132,7 +133,7 @@ final class AvatarPreviewComponent: Component {
                 self.imageNode.isHidden = false
                 if file.isAnimatedSticker || file.isVideoSticker || file.mimeType == "video/webm" {
                     if self.animationNode == nil {
-                        let animationNode = DefaultAnimatedStickerNodeImpl()
+                        let animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
                         animationNode.autoplay = false
                         self.animationNode = animationNode
                         animationNode.started = { [weak self] in

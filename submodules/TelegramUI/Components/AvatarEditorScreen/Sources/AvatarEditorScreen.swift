@@ -1344,7 +1344,8 @@ final class AvatarEditorScreenComponent: Component {
                     color: theme.list.itemCheckColors.foregroundColor,
                     startingPosition: .begin,
                     size: CGSize(width: 30.0, height: 30.0),
-                    loop: true
+                    loop: true,
+                    lottieSettings: .noAccountFallback
                 ))))
             }
             
