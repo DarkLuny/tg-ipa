@@ -1025,6 +1025,19 @@ public extension TelegramEngine {
             return _internal_getMessagesFactCheck(account: self.account, messageIds: messageIds)
         }
         
+        /// widget-sandbox v0.2: polls the shared state of the widget `widgetId` (`messages.getWidgetPublicData`) while
+        /// subscribed, with `messageId` as a carrier: a subscription is one widget on screen that watches. A new state is
+        /// written into the stored widget of each registered message.
+        public func pollWidgetPublicData(messageId: EngineMessage.Id, widgetId: Int64) -> Signal<Never, NoError> {
+            return self.account.viewTracker.widgetPublicDataPolling.poll(messageId: messageId, widgetId: widgetId)
+        }
+
+        /// A message widget's query to its bot (widget-sandbox v0.2; its type since v0.5.0): the answer's `result`, or
+        /// why there is none.
+        public func requestBotWidgetQueryAnswer(messageId: EngineMessage.Id, queryType: BotWidgetQueryType, data: Data) -> Signal<Data?, BotWidgetQueryError> {
+            return _internal_requestBotWidgetQueryAnswer(postbox: self.account.postbox, network: self.account.network, messageId: messageId, queryType: queryType, data: data)
+        }
+
         public func debugAddHoles() -> Signal<Never, NoError> {
             return self.account.postbox.transaction { transaction -> Void in
                 transaction.addHolesEverywhere(peerNamespaces: [Namespaces.Peer.CloudUser, Namespaces.Peer.CloudGroup, Namespaces.Peer.CloudChannel], holeNamespace: Namespaces.Message.Cloud)
