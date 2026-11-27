@@ -2233,3 +2233,46 @@ public extension SharedAccountContext {
         return self.makeWalletScreen(context: context, opensCollectibles: false)
     }
 }
+
+public struct ChatCameraParams {
+    public let allowPhoto: Bool
+    public let allowVideo: Bool
+    public let isSingleShot: Bool
+    public let maxCount: Int
+    public let hasAudio: Bool
+    public let saveCapturedMedia: Bool
+    public let recognizedQRCode: (String) -> Bool
+    public let prefersFrontCamera: Bool
+    public let mirrorsFrontResult: Bool
+    public let documentFrame: ChatCameraDocumentFrame?
+    public let locksPortrait: Bool
+    public let fixesCameraPosition: Bool
+
+    public init(
+        allowPhoto: Bool,
+        allowVideo: Bool,
+        isSingleShot: Bool,
+        maxCount: Int = 100,
+        hasAudio: Bool,
+        saveCapturedMedia: Bool,
+        recognizedQRCode: @escaping (String) -> Bool,
+        prefersFrontCamera: Bool = false,
+        mirrorsFrontResult: Bool = true,
+        documentFrame: ChatCameraDocumentFrame? = nil,
+        locksPortrait: Bool = false,
+        fixesCameraPosition: Bool = false
+    ) {
+        self.allowPhoto = allowPhoto
+        self.allowVideo = allowVideo
+        self.isSingleShot = isSingleShot
+        self.maxCount = maxCount
+        self.hasAudio = hasAudio
+        self.saveCapturedMedia = saveCapturedMedia
+        self.recognizedQRCode = recognizedQRCode
+        self.prefersFrontCamera = prefersFrontCamera
+        self.mirrorsFrontResult = mirrorsFrontResult
+        self.documentFrame = documentFrame
+        self.locksPortrait = locksPortrait
+        self.fixesCameraPosition = fixesCameraPosition
+    }
+}
