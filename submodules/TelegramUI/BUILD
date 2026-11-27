@@ -64,6 +64,13 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/FastBlur",
+        "//submodules/TelegramUI/Components/Chat/ChatMessageItemView",
+        "//submodules/TelegramUI/Components/TextFieldComponent",
+        "//submodules/TelegramUI/Components/Chat/ChatMessagePollBubbleContentNode",
+        "//submodules/TelegramUI/Components/HeaderPanelContainerComponent",
+        "//submodules/ShimmerEffect",
+        "//submodules/TelegramUI/Components/Chat/ChatOverscrollIsland",
         "//submodules/CrashReporting:CrashReporting",
         "//submodules/ExteraPluginKit:ExteraPluginKit",
         "//submodules/ExtensionsUI:ExtensionsUI",

@@ -10,6 +10,10 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/Components/BundleIconComponent",
+        "//submodules/UIKitRuntimeUtils",
+        "//submodules/TelegramUI/Components/QrStudioScreen",
+        "//submodules/ContactListUI",
         "//submodules/UrlWhitelist",
         "//submodules/TelegramUI/Components/NavigationBarNode",
         "//submodules/TelegramUI/Components/NavigationBarComponent",

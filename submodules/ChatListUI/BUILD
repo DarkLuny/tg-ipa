@@ -12,6 +12,9 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/PasswordSetupUI",
+        "//submodules/ConfettiEffect",
+        "//submodules/InvisibleInkDustNode",
         "//submodules/ExteraPluginKit:ExteraPluginKit",
         "//submodules/TelegramUI/Components/NavigationExpansionTransition",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
@@ -151,6 +154,9 @@ swift_library(
     testonly = True,
     srcs = glob(["Tests/**/*.swift"]),
     deps = [
+        "//submodules/PasswordSetupUI",
+        "//submodules/ConfettiEffect",
+        "//submodules/InvisibleInkDustNode",
         ":ChatListUI",
         "//submodules/TelegramCore:TelegramCore",
         "//submodules/Postbox:Postbox",

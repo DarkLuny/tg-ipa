@@ -12,6 +12,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/TelegramUIPreferences",
         "//submodules/SSignalKit/SwiftSignalKit",
     	"//submodules/TelegramCore:TelegramCore",
         "//submodules/Display:Display",
@@ -32,6 +33,7 @@ swift_library(
         "Tests/**/*.swift",
     ]),
     deps = [
+        "//submodules/TelegramUIPreferences",
         ":TextFormat",
         "//submodules/TelegramCore:TelegramCore",
         "//submodules/TelegramPresentationData:TelegramPresentationData",
@@ -55,6 +57,7 @@ ios_unit_test(
     minimum_os_version = "15.0",
     runner = ":TextFormatTestRunner",
     deps = [
+        "//submodules/TelegramUIPreferences",
         ":TextFormatTestsLib",
     ],
     visibility = [

@@ -19,6 +19,8 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/TelegramUI/Components/Chat/ChatOverscrollIsland",
+        "//submodules/Components/ComponentDisplayAdapters",
         "//submodules/Display",
         "//submodules/LottieSettings:LottieSettings",
         "//submodules/AsyncDisplayKit",
@@ -92,6 +94,8 @@ swift_library(
         "Tests/**/*.swift",
     ]),
     deps = [
+        "//submodules/TelegramUI/Components/Chat/ChatOverscrollIsland",
+        "//submodules/Components/ComponentDisplayAdapters",
         ":ChatTextInputPanelNode",
         "//submodules/TelegramUI/Components/Chat/ChatInputTextNode",
         "//submodules/TextFormat",
@@ -114,6 +118,8 @@ ios_unit_test(
     minimum_os_version = "15.0",
     runner = ":ChatTextInputPanelNodeTestRunner",
     deps = [
+        "//submodules/TelegramUI/Components/Chat/ChatOverscrollIsland",
+        "//submodules/Components/ComponentDisplayAdapters",
         ":ChatTextInputPanelNodeTestsLib",
     ],
     visibility = [
