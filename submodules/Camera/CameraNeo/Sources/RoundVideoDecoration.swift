@@ -3,6 +3,7 @@ import UIKit
 import AppBundle
 import GZip
 import LottieBinding
+import LottieSettings
 
 struct RoundVideoDecorationAnimation {
     static let frameWidth = 68
@@ -99,7 +100,7 @@ final class RoundVideoDecorationProvider {
         }
         guard let compressedData = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let data = TGGUnzipData(compressedData, 5 * 1024 * 1024),
-              let animation = makeLottieInstance(data: data, fitzModifier: .none, colorReplacements: [:]) else {
+              let animation = makeLottieInstance(data: data, fitzModifier: .none, colorReplacements: [:], cacheKey: "", settings: .noAccountFallback) else {
             return nil
         }
         guard animation.frameCount >= Int32((RoundVideoDecorationAnimation.frameCount - 1) * 2 + 1) else {

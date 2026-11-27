@@ -494,3 +494,10 @@ public func bottomEdgeSideInsets(safeInsets: UIEdgeInsets, reservedCorners: Cont
     let height: CGFloat = 10000.0
     return bandSideInsets(forBandFrom: height - 1.0, to: height, containerHeight: height, safeInsets: safeInsets, reservedCorners: reservedCorners)
 }
+
+/// The device orientation in which the portrait of the screen showing a window reads upright. The
+/// iPhone Duo inner screen reports its own orientation, which this tree does not model yet; the
+/// regular portrait result is correct on every other device.
+public func screenPortraitDeviceOrientationForWindow(size: CGSize) -> UIDeviceOrientation {
+    return .portrait
+}
