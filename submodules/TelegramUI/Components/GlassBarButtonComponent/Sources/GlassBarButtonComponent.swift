@@ -94,6 +94,12 @@ public final class GlassBarButtonComponent: Component {
         private let genericBackgroundView: SimpleGlassView
         private let glassContainerView: UIView
         private var glassBackgroundView: GlassBackgroundView?
+        
+        /// The source for a context menu this button opens: its glass, which morphs into the menu, or the button itself
+        /// in the generic state.
+        public var menuSourceView: UIView {
+            return self.glassBackgroundView ?? self
+        }
         private var componentView: ComponentView<Empty>?
         
         private var component: GlassBarButtonComponent?

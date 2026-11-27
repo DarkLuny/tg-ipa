@@ -61,6 +61,7 @@ swift_library(
         ":DrawingUIBundle",
     ],
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
         "//submodules/AsyncDisplayKit:AsyncDisplayKit",
         "//submodules/Display:Display",

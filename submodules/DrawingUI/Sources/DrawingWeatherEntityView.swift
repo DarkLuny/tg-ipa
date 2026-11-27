@@ -11,6 +11,7 @@ import StickerResources
 import MediaEditor
 import TelegramStringFormatting
 import LottieComponent
+import LottieSettings
 import LottieComponentResourceContent
 
 private func generateIcon(style: DrawingWeatherEntity.Style) -> UIImage? {
@@ -145,7 +146,8 @@ public final class DrawingWeatherEntityView: DrawingEntityView, UITextViewDelega
                         ),
                         color: nil,
                         placeholderColor: UIColor(rgb: 0x000000, alpha: 0.1),
-                        loop: !["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"].contains(self.weatherEntity.emoji)
+                        loop: !["рџЊ‘", "рџЊ’", "рџЊ“", "рџЊ”", "рџЊ•", "рџЊ–", "рџЊ—", "рџЊ"].contains(self.weatherEntity.emoji),
+                        lottieSettings: .noAccountFallback
                     )
                 ),
                 environment: {},

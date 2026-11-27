@@ -6,6 +6,7 @@ import Display
 import SwiftSignalKit
 import TelegramCore
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import StickerResources
 import AccountContext
@@ -197,7 +198,7 @@ public class DrawingStickerEntityView: DrawingEntityView {
             if let dimensions = file.dimensions {
                 if file.isAnimatedSticker || file.isVideoSticker || file.mimeType == "video/webm" {
                     if self.animationNode == nil {
-                        let animationNode = DefaultAnimatedStickerNodeImpl()
+                        let animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
                         animationNode.clipsToBounds = true
                         animationNode.autoplay = false
                         self.animationNode = animationNode
@@ -314,7 +315,7 @@ public class DrawingStickerEntityView: DrawingEntityView {
                 return
             }
             if self.animationNode == nil {
-                let animationNode = DefaultAnimatedStickerNodeImpl()
+                let animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
                 animationNode.clipsToBounds = true
                 animationNode.autoplay = false
                 self.animationNode = animationNode
