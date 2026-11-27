@@ -405,6 +405,7 @@ public class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
                             innerSubject: replyInnerSubject,
                             story: replyStory,
                             isSummarized: false,
+                            isLoading: false,
                             parentMessage: item.message,
                             constrainedSize: CGSize(width: availableWidth, height: CGFloat.greatestFiniteMagnitude),
                             animationCache: item.controllerInteraction.presentationContext.animationCache,
