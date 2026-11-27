@@ -6,6 +6,7 @@ import SwiftSignalKit
 import HierarchyTrackingLayer
 import ShimmerEffect
 import ManagedAnimationNode
+import LottieSettings
 import GlassBackgroundComponent
 
 private func generateIndefiniteActivityIndicatorImage(color: UIColor, diameter: CGFloat = 22.0, lineWidth: CGFloat = 2.0) -> UIImage? {
@@ -262,7 +263,7 @@ public final class SolidRoundedButtonNode: ASDisplayNode {
                     self.animationNode?.removeFromSupernode()
                     self.animationNode = nil
                     
-                    let animationNode = SimpleAnimationNode(animationName: animation, size: CGSize(width: 30.0, height: 30.0))
+                    let animationNode = SimpleAnimationNode(animationName: animation, size: CGSize(width: 30.0, height: 30.0), lottieSettings: .noAccountFallback)
                     animationNode.customColor = self.theme.foregroundColor
                     animationNode.isUserInteractionEnabled = false
                     self.addSubnode(animationNode)
@@ -1067,7 +1068,7 @@ public final class SolidRoundedButtonView: UIView {
                     self.animationNode?.view.removeFromSuperview()
                     self.animationNode = nil
                     
-                    let animationNode = SimpleAnimationNode(animationName: animation, size: CGSize(width: 30.0, height: 30.0))
+                    let animationNode = SimpleAnimationNode(animationName: animation, size: CGSize(width: 30.0, height: 30.0), lottieSettings: .noAccountFallback)
                     animationNode.customColor = self.theme.foregroundColor
                     animationNode.isUserInteractionEnabled = false
                     self.addSubview(animationNode.view)
