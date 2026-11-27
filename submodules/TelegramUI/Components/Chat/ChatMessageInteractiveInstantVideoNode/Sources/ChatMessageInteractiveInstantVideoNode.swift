@@ -584,8 +584,7 @@ public class ChatMessageInteractiveInstantVideoNode: ASDisplayNode {
                 hasAutoremove: item.message.isSelfExpiring,
                 canViewReactionList: canViewMessageReactionList(message: EngineMessage(item.topMessage)),
                 animationCache: item.controllerInteraction.presentationContext.animationCache,
-                animationRenderer: item.controllerInteraction.presentationContext.animationRenderer,
-                isDeleted: item.attributes.isDeleted
+                animationRenderer: item.controllerInteraction.presentationContext.animationRenderer
             ))
             
             let (dateAndStatusSize, dateAndStatusApply) = statusSuggestedWidthAndContinue.1(statusSuggestedWidthAndContinue.0)
