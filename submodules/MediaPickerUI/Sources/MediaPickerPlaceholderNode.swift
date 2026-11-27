@@ -5,6 +5,7 @@ import Display
 import TelegramPresentationData
 import AnimatedStickerNode
 import TelegramAnimatedStickerNode
+import LottieSettings
 import SolidRoundedButtonNode
 import PresentationDataUtils
 
@@ -45,7 +46,7 @@ final class MediaPickerPlaceholderNode: ASDisplayNode {
                 playbackMode = .once
         }
         
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         self.animationNode.setup(source: AnimatedStickerNodeLocalFileSource(name: name), width: 320, height: 320, playbackMode: playbackMode, mode: .direct(cachePathPrefix: nil))
         self.animationNode.visibility = true
         
