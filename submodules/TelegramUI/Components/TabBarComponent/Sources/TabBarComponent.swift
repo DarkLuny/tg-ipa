@@ -8,6 +8,7 @@ import ComponentDisplayAdapters
 import GlassBackgroundComponent
 import MultilineTextComponent
 import LottieComponent
+import LottieSettings
 import UIKitRuntimeUtils
 import BundleIconComponent
 import LiquidLens
@@ -1382,7 +1383,8 @@ private final class ItemComponent: Component {
                             placeholderColor: nil,
                             startingPosition: .end,
                             size: CGSize(width: floor(48.0 * animationScale), height: floor(48.0 * animationScale)),
-                            loop: false
+                            loop: false,
+                            lottieSettings: .noAccountFallback
                         )),
                         environment: {},
                         containerSize: CGSize(width: floor(48.0 * animationScale), height: floor(48.0 * animationScale))
@@ -1472,7 +1474,8 @@ private final class ItemComponent: Component {
                             placeholderColor: nil,
                             startingPosition: .end,
                             size: CGSize(width: 48.0, height: 48.0),
-                            loop: false
+                            loop: false,
+                            lottieSettings: .noAccountFallback
                         )),
                         environment: {},
                         containerSize: CGSize(width: 48.0, height: 48.0)
