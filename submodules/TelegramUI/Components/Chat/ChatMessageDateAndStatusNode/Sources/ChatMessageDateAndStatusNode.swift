@@ -1132,14 +1132,8 @@ public class ChatMessageDateAndStatusNode: ASDisplayNode {
                         
                         // Bubble mode off: the time's plate is glass drawn from images: over media the dark media glass (the
                         // time and checks over a picture are white), under stickers and round videos the page's glass.
-                        var staticGlassPlate: (tint: StaticGlassTint, isDark: Bool)?
-                        if !arguments.presentationData.chatBubbleCorners.bubbleMode {
-                            if backgroundImage != nil {
-                                staticGlassPlate = (.media, true)
-                            } else if blurredBackgroundColor != nil {
-                                staticGlassPlate = (.panel, arguments.presentationData.theme.theme.overallDarkAppearance)
-                            }
-                        }
+                        // This tree's PresentationChatBubbleCorners has no bubbleMode.
+                        let staticGlassPlate: (tint: StaticGlassTint, isDark: Bool)? = nil
                         
                         if backgroundImage != nil && staticGlassPlate == nil {
                             if let currentBackgroundNode = currentBackgroundNode {
