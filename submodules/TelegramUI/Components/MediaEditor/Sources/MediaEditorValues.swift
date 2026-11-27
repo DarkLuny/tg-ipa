@@ -707,7 +707,7 @@ public final class MediaEditorValues: Codable, Equatable, CustomStringConvertibl
         cropRotation: CGFloat,
         cropMirroring: Bool,
         cropOrientation: MediaCropOrientation?,
-        cropPerspective: MediaEditorCropPerspective,
+        cropPerspective: MediaEditorCropPerspective = .zero,
         gradientColors: [UIColor]?,
         videoTrimRange: Range<Double>?,
         videoBounce: Bool,
