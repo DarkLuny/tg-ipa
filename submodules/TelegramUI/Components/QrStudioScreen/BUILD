@@ -35,6 +35,7 @@ swift_library(
     copts = ["-warnings-as-errors"],
     data = [":QrStudioMetalSourcesBundle"],
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/AccountContext",
         "//submodules/ComponentFlow",
         "//submodules/Components/BundleIconComponent",
