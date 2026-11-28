@@ -449,7 +449,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
         
         if let telegramDice = self.telegramDice {
             if telegramDice.emoji == "🎰" {
-                let animationNode = SlotMachineAnimationNode(account: item.context.account)
+                let animationNode = SlotMachineAnimationNode(account: item.context.account, lottieSettings: item.context.lottieRenderingSettings)
                 if !item.message.effectivelyIncoming(item.context.account.peerId) {
                     animationNode.success = { [weak self] onlyHaptic in
                         if let strongSelf = self, let item = strongSelf.item {
@@ -459,7 +459,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
                 }
                 self.animationNode = animationNode
             } else {
-                let animationNode = ManagedDiceAnimationNode(context: item.context, emoji: telegramDice.emoji.strippedEmoji)
+                let animationNode = ManagedDiceAnimationNode(context: item.context, emoji: telegramDice.emoji.strippedEmoji, lottieSettings: item.context.lottieRenderingSettings)
                 if !item.message.effectivelyIncoming(item.context.account.peerId) {
                     animationNode.success = { [weak self] in
                         if let strongSelf = self, let item = strongSelf.item {
