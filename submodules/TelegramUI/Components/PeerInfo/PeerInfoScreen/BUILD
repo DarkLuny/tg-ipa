@@ -10,6 +10,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/ExteraPluginKit:ExteraPluginKit",
         "//submodules/UrlWhitelist",
         "//submodules/TelegramUI/Components/NavigationBarNode",

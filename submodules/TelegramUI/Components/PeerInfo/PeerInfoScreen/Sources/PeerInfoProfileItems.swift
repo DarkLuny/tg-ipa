@@ -23,7 +23,7 @@ private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .ment
 
 /// The plugin API's dialog id for a peer, as `PluginBootstrap.dialogId(from:)` in the app target computes it.
 /// This module cannot import that target, so the conversion lives here.
-private func peerInfoPluginDialogId(_ peerId: PeerId) -> Int64 {
+private func peerInfoPluginDialogId(_ peerId: EnginePeer.Id) -> Int64 {
     if peerId.namespace == Namespaces.Peer.CloudChannel {
         return -(peerId.id._internalGetInt64Value() + 1000000000000)
     }
@@ -191,7 +191,7 @@ func infoItems(
         }
         
         if let phone = user.phone {
-            let formattedPhone = ExteraSettings.shared.hidePhoneNumber ? "вЂўвЂўвЂў вЂўвЂўвЂў вЂўвЂўвЂў" : formatPhoneNumber(context: context, number: phone)
+            let formattedPhone = ExteraSettings.shared.hidePhoneNumber ? "РІР‚СћРІР‚СћРІР‚Сћ РІР‚СћРІР‚СћРІР‚Сћ РІР‚СћРІР‚СћРІР‚Сћ" : formatPhoneNumber(context: context, number: phone)
             let label: String
             if formattedPhone.hasPrefix("+888 ") {
                 label = presentationData.strings.UserInfo_AnonymousNumberLabel

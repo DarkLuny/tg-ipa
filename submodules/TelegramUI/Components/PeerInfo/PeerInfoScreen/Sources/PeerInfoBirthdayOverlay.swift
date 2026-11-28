@@ -1,4 +1,5 @@
 import Foundation
+import LottieSettings
 import UIKit
 import AsyncDisplayKit
 import Display
@@ -43,7 +44,7 @@ final class PeerInfoBirthdayOverlay: ASDisplayNode {
         |> map { animatedEmoji, numbers -> (FileMediaReference?, [FileMediaReference]) in
             var effectFile: FileMediaReference?
             if case let .result(_, items, _) = animatedEmoji {
-                let randomKey = ["🎉", "🎈", "🎆"].randomElement()!
+                let randomKey = ["СЂСџР‹вЂ°", "СЂСџР‹в‚¬", "СЂСџР‹вЂ "].randomElement()!
                 outer: for item in items {
                     let indexKeys = item.getStringRepresentationsOfIndexKeys()
                     for key in indexKeys {
@@ -95,7 +96,7 @@ final class PeerInfoBirthdayOverlay: ASDisplayNode {
         let pixelSize = dimensions.cgSize.aspectFitted(CGSize(width: 512.0, height: 512.0))
         let animationSize = dimensions.cgSize.aspectFitted(CGSize(width: minSide, height: minSide))
         
-        let animationNode = DefaultAnimatedStickerNodeImpl()
+        let animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         let source = AnimatedStickerResourceSource(account: self.context.account, resource: file.media.resource, fitzModifier: nil)
         let pathPrefix = self.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(file.media.resource.id))
         animationNode.setup(source: source, width: Int(pixelSize.width), height: Int(pixelSize.height), playbackMode: .once, mode: .direct(cachePathPrefix: pathPrefix))
@@ -129,7 +130,7 @@ final class PeerInfoBirthdayOverlay: ASDisplayNode {
             let animationSize = dimensions.cgSize.aspectFitted(CGSize(width: 144.0, height: 144.0))
             let pixelSize = dimensions.cgSize.aspectFitted(CGSize(width: 256.0, height: 256.0))
             
-            let animationNode = DefaultAnimatedStickerNodeImpl()
+            let animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
             let source = AnimatedStickerResourceSource(account: self.context.account, resource: file.media.resource, fitzModifier: nil)
             let pathPrefix: String? = self.context.engine.resources.shortLivedResourceCachePathPrefix(id: EngineMediaResource.Id(file.media.resource.id))
             animationNode.setup(source: source, width: Int(pixelSize.width), height: Int(pixelSize.height), playbackMode: .loop, mode: .direct(cachePathPrefix: pathPrefix))
@@ -183,7 +184,7 @@ final class PeerInfoBirthdayOverlay: ASDisplayNode {
                 for item in items {
                     let indexKeys = item.getStringRepresentationsOfIndexKeys()
                     for key in indexKeys {
-                        if ["🎉", "🎈", "🎆"].contains(key) {
+                        if ["СЂСџР‹вЂ°", "СЂСџР‹в‚¬", "СЂСџР‹вЂ "].contains(key) {
                             signals.append(freeMediaFileInteractiveFetched(account: context.account, userLocation: .peer(context.account.peerId), fileReference: .stickerPack(stickerPack: .animatedEmojiAnimations, media: item.file._parse())))
                         }
                     }
@@ -218,25 +219,25 @@ private func ageToKeys(_ age: Int) -> [String] {
     return "\(age)".map { String($0) }.map {
         switch $0 {
         case "0":
-            return "0️⃣"
+            return "0РїС‘РЏРІС“Р€"
         case "1":
-            return "1️⃣"
+            return "1РїС‘РЏРІС“Р€"
         case "2":
-            return "2️⃣"
+            return "2РїС‘РЏРІС“Р€"
         case "3":
-            return "3️⃣"
+            return "3РїС‘РЏРІС“Р€"
         case "4":
-            return "4️⃣"
+            return "4РїС‘РЏРІС“Р€"
         case "5":
-            return "5️⃣"
+            return "5РїС‘РЏРІС“Р€"
         case "6":
-            return "6️⃣"
+            return "6РїС‘РЏРІС“Р€"
         case "7":
-            return "7️⃣"
+            return "7РїС‘РЏРІС“Р€"
         case "8":
-            return "8️⃣"
+            return "8РїС‘РЏРІС“Р€"
         case "9":
-            return "9️⃣"
+            return "9РїС‘РЏРІС“Р€"
         default:
             return $0
         }

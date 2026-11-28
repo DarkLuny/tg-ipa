@@ -2731,7 +2731,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
     
     /// The navigation bar, then the header (avatar, name, status), then the rows. The header's frame starts where the
     /// scroll node's does and the bar is added last, so UIKit's order would read the header after every row.
-    override var screenAccessibilityElements: [Any]? {
+    var screenAccessibilityElements: [Any]? {
         let headerView = self.headerNode.view
         let navigationBarView = self.controller?.navigationBar?.view
         var elements: [Any] = []

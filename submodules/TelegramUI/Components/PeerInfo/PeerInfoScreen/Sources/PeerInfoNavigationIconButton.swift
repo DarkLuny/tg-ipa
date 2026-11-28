@@ -1,4 +1,5 @@
 import Foundation
+import LottieSettings
 import UIKit
 import AsyncDisplayKit
 import Display
@@ -19,7 +20,7 @@ private final class MoreIconNode: ManagedAnimationNode {
     private var iconState: MoreIconNodeState = .more
     
     init() {
-        super.init(size: CGSize(width: 30.0, height: 30.0))
+        super.init(size: CGSize(width: 30.0, height: 30.0), lottieSettings: .noAccountFallback)
         
         self.trackTo(item: ManagedAnimationItem(source: .local("anim_moretosearch"), frames: .range(startFrame: 0, endFrame: 0), duration: 0.0))
     }

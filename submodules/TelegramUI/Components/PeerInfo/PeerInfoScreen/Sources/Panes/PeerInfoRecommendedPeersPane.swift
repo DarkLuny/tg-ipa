@@ -1,4 +1,5 @@
 import Foundation
+import LottieSettings
 import UIKit
 import AsyncDisplayKit
 import Display
@@ -411,7 +412,8 @@ final class PeerInfoRecommendedPeersPaneNode: ASDisplayNode, PeerInfoPaneNode {
                                 color: buttonForegroundColor,
                                 startingPosition: .begin,
                                 size: CGSize(width: 30.0, height: 30.0),
-                                loop: true
+                                loop: true,
+                                lottieSettings: .noAccountFallback
                             )))
                         ], spacing: 4.0)
                     )),
