@@ -22,6 +22,7 @@ import ChatMediaInputStickerGridItem
 import UndoUI
 import PremiumUI
 import LottieComponent
+import LottieSettings
 import BundleIconComponent
 
 private protocol ChatEmptyNodeContent {
@@ -1241,7 +1242,8 @@ public final class ChatEmptyNodePremiumRequiredChatContent: ASDisplayNode, ChatE
                         content: LottieComponent.AppBundleContent(name: "PremiumRequired"),
                         color: serviceColor.primaryText,
                         size: CGSize(width: 120.0, height: 120.0),
-                        loop: true
+                        loop: true,
+                        lottieSettings: .noAccountFallback
                     )
                 )
             }
