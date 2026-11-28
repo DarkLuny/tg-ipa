@@ -470,7 +470,7 @@ public class ChatMessageAnimatedStickerItemNode: ChatMessageItemView {
                 self.animationNode = animationNode
             }
         } else {
-            let animationNode = DefaultAnimatedStickerNodeImpl(useMetalCache: false)
+            let animationNode = DefaultAnimatedStickerNodeImpl(useMetalCache: false, lottieSettings: .noAccountFallback)
             animationNode.started = { [weak self] in
                 if let strongSelf = self {
                     strongSelf.imageNode.alpha = 0.0
