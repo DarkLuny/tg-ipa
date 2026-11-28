@@ -1976,6 +1976,7 @@ ios_application(
     ],
     resources = [
         ":LaunchScreen",
+        "//submodules/ExteraPluginKit:ExteraPluginsBundle",
         #":DefaultAppIcon",
     ],
     frameworks = [
