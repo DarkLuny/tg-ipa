@@ -28,6 +28,7 @@ import ComponentFlow
 import TextFieldComponent
 import PlainButtonComponent
 import LottieComponent
+import LottieSettings
 import UndoUI
 import TelegramStringFormatting
 
@@ -1889,7 +1890,8 @@ private final class ChatMessagePollAddOptionNode: ASDisplayNode {
                     content: AnyComponent(LottieComponent(
                         content: LottieComponent.AppBundleContent(name: animationName),
                         color: secondaryTextColor,
-                        size: modeSelectorSize
+                        size: modeSelectorSize,
+                        lottieSettings: .noAccountFallback
                     )),
                     effectAlignment: .center,
                     action: { [weak self] in
