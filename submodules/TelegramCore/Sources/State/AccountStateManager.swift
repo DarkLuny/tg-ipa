@@ -338,6 +338,13 @@ public final class AccountStateManager {
         var walletStateUpdates: Signal<Api.WalletState, NoError> {
             return self.walletStateUpdatesPipe.signal()
         }
+
+        /// Settings changed by `updateAgentSettings` in another session. The agent API is parked, so nothing
+        /// publishes into this pipe yet; the signal exists for `AgentSettingsContext` to subscribe to.
+        fileprivate let agentSettingsUpdatesPipe = ValuePipe<EngineAgentSettings>()
+        var agentSettingsUpdates: Signal<EngineAgentSettings, NoError> {
+            return self.agentSettingsUpdatesPipe.signal()
+        }
         
         fileprivate let botPreviewUpdatesPipe = ValuePipe<[InternalBotPreviewUpdate]>()
         public var botPreviewUpdates: Signal<[InternalBotPreviewUpdate], NoError> {
@@ -2284,6 +2291,12 @@ public final class AccountStateManager {
     func walletStateUpdates() -> Signal<Api.WalletState, NoError> {
         return self.impl.signalWith { impl, subscriber in
             return impl.walletStateUpdates.start(next: subscriber.putNext, error: subscriber.putError, completed: subscriber.putCompletion)
+        }
+    }
+
+    func agentSettingsUpdates() -> Signal<EngineAgentSettings, NoError> {
+        return self.impl.signalWith { impl, subscriber in
+            return impl.agentSettingsUpdates.start(next: subscriber.putNext, error: subscriber.putError, completed: subscriber.putCompletion)
         }
     }
     
