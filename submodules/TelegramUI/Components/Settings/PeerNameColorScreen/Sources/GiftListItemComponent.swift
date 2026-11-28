@@ -11,6 +11,7 @@ import AccountContext
 import TabSelectorComponent
 import CollectionTabItemComponent
 import LottieComponent
+import LottieSettings
 import MultilineTextComponent
 import BalancedTextComponent
 import GiftLoadingShimmerView
@@ -310,7 +311,8 @@ final class GiftListItemComponent: Component {
                 let emptyResultsAnimationSize = self.emptyResultsAnimation.update(
                     transition: .immediate,
                     component: AnyComponent(LottieComponent(
-                        content: LottieComponent.AppBundleContent(name: "Style")
+                        content: LottieComponent.AppBundleContent(name: "Style"),
+                        lottieSettings: .noAccountFallback
                     )),
                     environment: {},
                     containerSize: CGSize(width: emptyAnimationHeight, height: emptyAnimationHeight)
