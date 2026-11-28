@@ -15,6 +15,18 @@ import TelegramPresentationData
 import TelegramStringFormatting
 import ChatTimerScreen
 import NotificationPeerExceptionController
+import ExteraPluginKit
+
+/// Android dialog id (`-100…` for channels, `-…` for groups) used by plugins.
+private func chatContextPluginDialogId(_ peerId: EnginePeer.Id) -> Int64 {
+    if peerId.namespace == Namespaces.Peer.CloudChannel {
+        return -(peerId.id._internalGetInt64Value() + 1000000000000)
+    }
+    if peerId.namespace == Namespaces.Peer.CloudGroup {
+        return -peerId.id._internalGetInt64Value()
+    }
+    return peerId.id._internalGetInt64Value()
+}
 
 func archiveContextMenuItems(context: AccountContext, group: EngineChatList.Group, chatListController: ChatListControllerImpl?) -> Signal<[ContextMenuItem], NoError> {
     let presentationData = context.sharedContext.currentPresentationData.with({ $0 })
@@ -601,6 +613,23 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
 
                     if let item = items.last, case .separator = item {
                         items.removeLast()
+                    }
+
+                    let pluginContext: [String: Any] = [
+                        "peer": chatContextPluginDialogId(peerId),
+                        "title": peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                    ]
+                    let pluginItems = PluginHooks.shared.menuItems(for: .chatActionMenu, context: pluginContext)
+                    if !pluginItems.isEmpty {
+                        if !items.isEmpty {
+                            items.append(.separator)
+                        }
+                        for pluginItem in pluginItems {
+                            items.append(.action(ContextMenuActionItem(text: pluginItem.text, icon: { _ in return nil }, action: { _, f in
+                                PluginHooks.shared.invokeMenuItem(pluginItem, context: pluginContext)
+                                f(.default)
+                            })))
+                        }
                     }
 
                     return items
