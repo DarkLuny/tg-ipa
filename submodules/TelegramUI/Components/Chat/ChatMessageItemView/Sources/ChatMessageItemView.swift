@@ -15,6 +15,7 @@ import TextFormat
 import ChatMessageItem
 import ChatMessageTransitionNode
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 
 public func chatMessageItemLayoutConstants(_ constants: (ChatMessageItemLayoutConstants, ChatMessageItemLayoutConstants), params: ListViewItemLayoutParams, presentationData: ChatPresentationData) -> ChatMessageItemLayoutConstants {
@@ -1189,10 +1190,10 @@ open class ChatMessageItemView: ListViewItemNode, ChatMessageItemNodeProtocol {
             let additionalAnimationNode: AnimatedStickerNode
             var effectiveScale: CGFloat = 1.0
             #if targetEnvironment(simulator)
-            additionalAnimationNode = DirectAnimatedStickerNode()
+            additionalAnimationNode = DirectAnimatedStickerNode(lottieSettings: .noAccountFallback)
             effectiveScale = 1.4
             #else
-            additionalAnimationNode = DirectAnimatedStickerNode()
+            additionalAnimationNode = DirectAnimatedStickerNode(lottieSettings: .noAccountFallback)
             effectiveScale = 1.4
             #endif
             additionalAnimationNode.updateLayout(size: animationSize)
