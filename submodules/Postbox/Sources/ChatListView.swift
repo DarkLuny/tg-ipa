@@ -1032,6 +1032,11 @@ public final class ChatListView {
     public let groupId: PeerGroupId
     public let additionalItemEntries: [ChatListAdditionalItemEntry]
     public let entries: [ChatListEntry]
+
+    /// The view's rows under the name the plugin API uses.
+    public var items: [ChatListEntry] {
+        return self.entries
+    }
     public let groupEntries: [ChatListGroupReferenceEntry]
     public let earlierIndex: ChatListIndex?
     public let laterIndex: ChatListIndex?

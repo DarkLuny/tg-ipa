@@ -739,7 +739,7 @@ private final class PluginContextRegistry: @unchecked Sendable {
             replyToStoryId: nil,
             localGroupingKey: nil,
             correlationId: nil,
-            bubbleUpEmojiOrStickersets: [:]
+            bubbleUpEmojiOrStickersets: []
         )
         let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [message]).start()
         return .success(0)
