@@ -6,6 +6,7 @@ import SwiftSignalKit
 import TelegramPresentationData
 import ComponentFlow
 import LottieComponent
+import LottieSettings
 
 class ChatListHoleItem: ListViewItem {
     var neighborDescriptor: AnyEquatable {
@@ -301,7 +302,8 @@ class ChatListSearchEmptyFooterItemNode: ListViewItemNode {
                         size: iconSize,
                         renderingScale: nil,
                         loop: false,
-                        playOnce: nil
+                        playOnce: nil,
+                        lottieSettings: .noAccountFallback
                     )),
                     environment: {}, containerSize: iconSize
                 )
