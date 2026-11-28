@@ -21,6 +21,18 @@ import ExteraPluginKit
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
 
+/// The plugin API's dialog id for a peer, as `PluginBootstrap.dialogId(from:)` in the app target computes it.
+/// This module cannot import that target, so the conversion lives here.
+private func peerInfoPluginDialogId(_ peerId: PeerId) -> Int64 {
+    if peerId.namespace == Namespaces.Peer.CloudChannel {
+        return -(peerId.id._internalGetInt64Value() + 1000000000000)
+    }
+    if peerId.namespace == Namespaces.Peer.CloudGroup {
+        return -peerId.id._internalGetInt64Value()
+    }
+    return peerId.id._internalGetInt64Value()
+}
+
 private func peerVerificationDescriptionEntities(_ verification: PeerVerification) -> [MessageTextEntity] {
     var result = verification.descriptionEntities
     for entity in generateTextEntities(verification.description, enabledTypes: [.allUrl]) {
@@ -179,7 +191,7 @@ func infoItems(
         }
         
         if let phone = user.phone {
-            let formattedPhone = ExteraSettings.shared.hidePhoneNumber ? "••• ••• •••" : formatPhoneNumber(context: context, number: phone)
+            let formattedPhone = ExteraSettings.shared.hidePhoneNumber ? "вЂўвЂўвЂў вЂўвЂўвЂў вЂўвЂўвЂў" : formatPhoneNumber(context: context, number: phone)
             let label: String
             if formattedPhone.hasPrefix("+888 ") {
                 label = presentationData.strings.UserInfo_AnonymousNumberLabel
@@ -443,7 +455,7 @@ func infoItems(
         }
         
         let pluginContext: [String: Any] = [
-            "peer": PluginBootstrap.dialogId(from: user.id),
+            "peer": peerInfoPluginDialogId(user.id),
             "title": EnginePeer(user).compactDisplayTitle,
             "username": user.username ?? ""
         ]
@@ -893,7 +905,7 @@ func infoItems(
         }
 
         let pluginContext: [String: Any] = [
-            "peer": PluginBootstrap.dialogId(from: channel.id),
+            "peer": peerInfoPluginDialogId(channel.id),
             "title": data.peer?.compactDisplayTitle ?? "",
             "username": channel.addressName ?? ""
         ]
@@ -929,7 +941,7 @@ func infoItems(
         }
 
         let pluginContext: [String: Any] = [
-            "peer": PluginBootstrap.dialogId(from: group.id),
+            "peer": peerInfoPluginDialogId(group.id),
             "title": data.peer?.compactDisplayTitle ?? ""
         ]
         for (index, pluginItem) in PluginHooks.shared.menuItems(for: .profileActionMenu, context: pluginContext).enumerated() {
