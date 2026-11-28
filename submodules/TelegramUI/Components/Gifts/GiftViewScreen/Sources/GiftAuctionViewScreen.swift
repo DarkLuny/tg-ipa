@@ -1,5 +1,4 @@
 import Foundation
-import LottieSettings
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -27,6 +26,7 @@ import GlassBarButtonComponent
 import ButtonComponent
 import UndoUI
 import LottieComponent
+import LottieSettings
 import AnimatedTextComponent
 import TableComponent
 
@@ -466,7 +466,7 @@ private final class GiftAuctionViewSheetContent: CombinedComponent {
                 self?.share()
             })))
 
-            let contextController = makeContextController(presentationData: presentationData, source: .reference(GiftViewContextReferenceContentSource(controller: controller, sourceView: view)), items: .single(ContextController.Items(content: .list(items))), gesture: gesture)
+            let contextController = makeContextController(presentationData: presentationData, source: .reference(GiftViewContextReferenceContentSource(controller: controller, sourceView: (view as? GlassBarButtonComponent.View)?.menuSourceView ?? view)), items: .single(ContextController.Items(content: .list(items))), gesture: gesture)
             controller.presentInGlobalOverlay(contextController)
         }
         
@@ -584,9 +584,9 @@ private final class GiftAuctionViewSheetContent: CombinedComponent {
                     if case let .finished(_, _, averagePrice, _, _, _) = auctionState.auctionState {
                         var items: [AnyComponentWithIdentity<Empty>] = []
                         
-                        let valueString = "\(presentationStringsFormattedNumber(abs(Int32(clamping: averagePrice)), dateTimeFormat.groupingSeparator))⭐️"
+                        let valueString = "\(presentationStringsFormattedNumber(abs(Int32(clamping: averagePrice)), dateTimeFormat.groupingSeparator))в­ђпёЏ"
                         let valueAttributedString = NSMutableAttributedString(string: valueString, font: tableFont, textColor: tableTextColor)
-                        let range = (valueAttributedString.string as NSString).range(of: "⭐️")
+                        let range = (valueAttributedString.string as NSString).range(of: "в­ђпёЏ")
                         if range.location != NSNotFound {
                             valueAttributedString.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: 0, file: nil, custom: .stars(tinted: false)), range: range)
                             valueAttributedString.addAttribute(.baselineOffset, value: 1.0, range: range)
@@ -1264,7 +1264,7 @@ private final class GiftAuctionViewSheetContent: CombinedComponent {
                             color: .white,
                             size: CGSize(width: 34.0, height: 34.0),
                             playOnce: moreButtonPlayOnce,
-                            lottieSettings: component.context.lottieRenderingSettings
+                            lottieSettings: .noAccountFallback
                         )
                     )),
                     action: { [weak state] view in

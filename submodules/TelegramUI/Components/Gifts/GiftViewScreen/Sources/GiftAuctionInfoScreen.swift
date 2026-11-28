@@ -1,5 +1,4 @@
 import Foundation
-import LottieSettings
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -20,6 +19,7 @@ import TelegramStringFormatting
 import GlassBarButtonComponent
 import ButtonComponent
 import LottieComponent
+import LottieSettings
 
 private final class GiftAuctionInfoSheetContent: CombinedComponent {
     typealias EnvironmentType = ViewControllerComponentContainer.Environment
@@ -286,7 +286,7 @@ private final class GiftAuctionInfoSheetContent: CombinedComponent {
                 startingPosition: .begin,
                 size: CGSize(width: 28.0, height: 28.0),
                 playOnce: state.playButtonAnimation,
-                lottieSettings: context.component.context.lottieRenderingSettings
+                lottieSettings: .noAccountFallback
             ))))
             buttonTitle.append(AnyComponentWithIdentity(id: 1, component: AnyComponent(ButtonTextContentComponent(
                 text: strings.Gift_Auction_Info_Understood,

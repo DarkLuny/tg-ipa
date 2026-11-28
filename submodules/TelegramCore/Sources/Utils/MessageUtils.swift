@@ -558,6 +558,16 @@ public extension Message {
         }
         return false
     }
+
+    func isSensitiveContent(platform: String, contentSettings: ContentSettings) -> Bool {
+        if let rules = self.restrictedContentAttribute?.rules, rules.containsSensitiveRule(platform: platform, contentSettings: contentSettings) {
+            return true
+        }
+        if let peer = self.peers[self.id.peerId], peer.hasSensitiveContent(platform: platform, contentSettings: contentSettings) {
+            return true
+        }
+        return false
+    }
 }
 
 public extension Message {

@@ -1,5 +1,4 @@
 import Foundation
-import LottieSettings
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -29,6 +28,7 @@ import PlainButtonComponent
 import CheckComponent
 import TooltipUI
 import LottieComponent
+import LottieSettings
 import ContextUI
 import TelegramNotices
 import PremiumLockButtonSubtitleComponent
@@ -1026,7 +1026,11 @@ private final class GiftViewSheetContent: CombinedComponent {
                         guard let self else {
                             return
                         }
-                        if let profileGiftsContext = controller?.profileGiftsContext {
+                        if let controller, let deleteGift = controller.deleteGift {
+                            controller.actionsAfterDismiss.append({
+                                deleteGift(reference)
+                            })
+                        } else if let profileGiftsContext = controller?.profileGiftsContext {
                             profileGiftsContext.deleteStarGift(reference: reference)
                         } else {
                             let _ = self.context.engine.payments.deleteStarGift(reference: reference).startStandalone()
@@ -2134,9 +2138,10 @@ private final class GiftViewSheetContent: CombinedComponent {
             guard let controller = self.getController() as? GiftViewScreen else {
                 return
             }
-            guard let controlsView = controller.node.hostView.findTaggedView(tag: self.controlButtonsTag) as? GlassControlPanelComponent.View, let rightItemView = controlsView.rightItemView, let sourceView = rightItemView.itemView(id: AnyHashable("more")) else {
+            guard let controlsView = controller.node.hostView.findTaggedView(tag: self.controlButtonsTag) as? GlassControlPanelComponent.View, let rightItemView = controlsView.rightItemView, rightItemView.itemView(id: AnyHashable("more")) != nil else {
                 return
             }
+            let sourceView = rightItemView.menuSourceView
             
             guard let arguments = self.subject.arguments else {
                 return
@@ -3748,7 +3753,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                 if !incoming, case let .profileGift(peerId, _) = subject, let peer = state.peerMap[peerId] {
                     var peerName = peer.compactDisplayTitle
                     if peerName.count > 22 {
-                        peerName = "\(peerName.prefix(22))…"
+                        peerName = "\(peerName.prefix(22))вЂ¦"
                     }
                     title = environment.strings.Gift_Upgrade_GiftTitle
                     uniqueText = strings.Gift_Upgrade_Unique_GiftDescription(peerName).string
@@ -3756,7 +3761,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                 } else if case let .upgradePreview(_, _, peerName) = component.subject {
                     var peerName = peerName
                     if peerName.count > 22 {
-                        peerName = "\(peerName.prefix(22))…"
+                        peerName = "\(peerName.prefix(22))вЂ¦"
                     }
                     title = environment.strings.Gift_Upgrade_IncludeTitle
                     uniqueText = strings.Gift_Upgrade_Unique_IncludeDescription
@@ -4196,17 +4201,17 @@ private final class GiftViewSheetContent: CombinedComponent {
                         var valueString = formatCurrencyAmountText(resellAmount, dateTimeFormat: environment.dateTimeFormat)
                         switch resellAmount.currency {
                         case .stars:
-                            valueString = "⭐️\(valueString)"
+                            valueString = "в­ђпёЏ\(valueString)"
                         case .ton:
-                            valueString = "💎\(valueString)"
+                            valueString = "рџ’Ћ\(valueString)"
                         }
                         let priceButtonAttributedString = NSMutableAttributedString(string: strings.Gift_View_OnSale(valueString).string, font: Font.regular(13.0), textColor: .white)
-                        let starRange = (priceButtonAttributedString.string as NSString).range(of: "⭐️")
+                        let starRange = (priceButtonAttributedString.string as NSString).range(of: "в­ђпёЏ")
                         if starRange.location != NSNotFound {
                             priceButtonAttributedString.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: 0, file: nil, custom: .stars(tinted: true)), range: starRange)
                             priceButtonAttributedString.addAttribute(.baselineOffset, value: 1.0, range: starRange)
                         }
-                        let tonRange = (priceButtonAttributedString.string as NSString).range(of: "💎")
+                        let tonRange = (priceButtonAttributedString.string as NSString).range(of: "рџ’Ћ")
                         if tonRange.location != NSNotFound {
                             priceButtonAttributedString.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: 1, file: nil, custom: .ton(tinted: true)), range: tonRange)
                             priceButtonAttributedString.addAttribute(.baselineOffset, value: 1.0, range: tonRange)
@@ -4579,7 +4584,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                         if let recipientPeerId, let peer = state.peerMap[recipientPeerId] {
                             var peerName = peer.compactDisplayTitle
                             if peerName.count > 30 {
-                                peerName = "\(peerName.prefix(30))…"
+                                peerName = "\(peerName.prefix(30))вЂ¦"
                             }
                             hiddenDescription = text != nil ? strings.Gift_View_Outgoing_NameAndMessageHidden(peerName).string : strings.Gift_View_Outgoing_NameHidden(peerName).string
                         } else {
@@ -5368,9 +5373,9 @@ private final class GiftViewSheetContent: CombinedComponent {
                     if let upgradeStars, upgradeStars > 0 {
                         finalStars += upgradeStars
                     }
-                    let valueString = "\(presentationStringsFormattedNumber(abs(Int32(clamping: finalStars)), dateTimeFormat.groupingSeparator))⭐️"
+                    let valueString = "\(presentationStringsFormattedNumber(abs(Int32(clamping: finalStars)), dateTimeFormat.groupingSeparator))в­ђпёЏ"
                     let valueAttributedString = NSMutableAttributedString(string: valueString, font: tableFont, textColor: tableTextColor)
-                    let range = (valueAttributedString.string as NSString).range(of: "⭐️")
+                    let range = (valueAttributedString.string as NSString).range(of: "в­ђпёЏ")
                     if range.location != NSNotFound {
                         valueAttributedString.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: 0, file: nil, custom: .stars(tinted: false)), range: range)
                         valueAttributedString.addAttribute(.baselineOffset, value: 1.0, range: range)
@@ -6002,7 +6007,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                                         ),
                                         size: CGSize(width: 30.0, height: 30.0),
                                         loop: true,
-                                        lottieSettings: component.context.lottieRenderingSettings
+                                        lottieSettings: .noAccountFallback
                                     )
                                 ))
                             ], spacing: 5.0))
@@ -6662,7 +6667,7 @@ final class GiftViewSheetComponent: CombinedComponent {
                     let dateString = stringForMediumDate(timestamp: arguments.date, strings: environment.strings, dateTimeFormat: environment.dateTimeFormat, withTime: false)
                     
                     if fromPeerName.count > 25 {
-                        fromPeerName = "\(fromPeerName.prefix(25))…"
+                        fromPeerName = "\(fromPeerName.prefix(25))вЂ¦"
                     }
                     let rawString = environment.strings.Gift_View_SenderInfo(fromPeerName, dateString).string
                     let attributedString = parseMarkdownIntoAttributedString(rawString, attributes: MarkdownAttributes(body: MarkdownAttributeSet(font: Font.regular(13.0), textColor: .white), bold: MarkdownAttributeSet(font: Font.semibold(13.0), textColor: .white), link: MarkdownAttributeSet(font: Font.regular(13.0), textColor: .white), linkAttribute: { _ in return nil }))
@@ -6989,6 +6994,8 @@ public class GiftViewScreen: ViewControllerComponentContainer {
     fileprivate let profileGiftsContext: ProfileGiftsContext?
     fileprivate let updateSavedToProfile: ((StarGiftReference, Bool) -> Void)?
     fileprivate let convertToStars: ((StarGiftReference) -> Void)?
+    fileprivate let deleteGift: ((StarGiftReference) -> Void)?
+    fileprivate var actionsAfterDismiss: [() -> Void] = []
     fileprivate let dropOriginalDetails: ((StarGiftReference) -> Signal<Never, DropStarGiftOriginalDetailsError>)?
     fileprivate let transferGift: ((Bool, StarGiftReference, EnginePeer.Id) -> Signal<Never, TransferStarGiftError>)?
     fileprivate let upgradeGift: ((Int64?, StarGiftReference, Bool) -> Signal<ProfileGiftsContext.State.StarGift, UpgradeStarGiftError>)?
@@ -7010,6 +7017,7 @@ public class GiftViewScreen: ViewControllerComponentContainer {
         profileGiftsContext: ProfileGiftsContext? = nil,
         updateSavedToProfile: ((StarGiftReference, Bool) -> Void)? = nil,
         convertToStars: ((StarGiftReference) -> Void)? = nil,
+        deleteGift: ((StarGiftReference) -> Void)? = nil,
         dropOriginalDetails: ((StarGiftReference) -> Signal<Never, DropStarGiftOriginalDetailsError>)? = nil,
         transferGift: ((Bool, StarGiftReference, EnginePeer.Id) -> Signal<Never, TransferStarGiftError>)? = nil,
         upgradeGift: ((Int64?, StarGiftReference, Bool) -> Signal<ProfileGiftsContext.State.StarGift, UpgradeStarGiftError>)? = nil,
@@ -7026,6 +7034,7 @@ public class GiftViewScreen: ViewControllerComponentContainer {
         self.profileGiftsContext = profileGiftsContext
         self.updateSavedToProfile = updateSavedToProfile
         self.convertToStars = convertToStars
+        self.deleteGift = deleteGift
         self.dropOriginalDetails = dropOriginalDetails
         self.transferGift = transferGift
         self.upgradeGift = upgradeGift
@@ -7098,6 +7107,20 @@ public class GiftViewScreen: ViewControllerComponentContainer {
     deinit {
         self.disposed()
         self.upgradableDisposable?.dispose()
+        self.performActionsAfterDismiss()
+    }
+    
+    private func performActionsAfterDismiss() {
+        let actions = self.actionsAfterDismiss
+        self.actionsAfterDismiss.removeAll()
+        for action in actions {
+            action()
+        }
+    }
+    
+    override public func dismiss(completion: (() -> Void)? = nil) {
+        super.dismiss(completion: completion)
+        self.performActionsAfterDismiss()
     }
     
     fileprivate func switchToNextUpgradable() {

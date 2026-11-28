@@ -24,6 +24,7 @@ import GiftViewScreen
 import SolidRoundedButtonNode
 import UndoUI
 import LottieComponent
+import LottieSettings
 import ButtonComponent
 import ContextUI
 import DustEffect
@@ -1014,7 +1015,8 @@ final class GiftsListView: UIView {
             let emptyResultsAnimationSize = self.emptyResultsAnimation.update(
                 transition: .immediate,
                 component: AnyComponent(LottieComponent(
-                    content: LottieComponent.AppBundleContent(name: "ChatListNoResults")
+                    content: LottieComponent.AppBundleContent(name: "ChatListNoResults"),
+                    lottieSettings: .noAccountFallback
                 )),
                 environment: {},
                 containerSize: CGSize(width: emptyAnimationHeight, height: emptyAnimationHeight)

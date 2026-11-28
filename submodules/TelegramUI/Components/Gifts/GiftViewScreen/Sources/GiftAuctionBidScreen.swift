@@ -1,5 +1,4 @@
 import Foundation
-import LottieSettings
 import UIKit
 import AsyncDisplayKit
 import TelegramPresentationData
@@ -30,6 +29,7 @@ import BotPaymentsUI
 import UndoUI
 import GiftItemComponent
 import LottieComponent
+import LottieSettings
 import EdgeEffect
 import ConfettiEffect
 
@@ -467,7 +467,7 @@ private final class PeerPlaceComponent: Component {
                     placeString = "\(compactNumericCountString(Int(place), decimalSeparator: ".", showDecimalPart: false))+"
                 }
             } else {
-                placeString = "–"
+                placeString = "вЂ“"
             }
             
             let labelSize = self.label.update(
@@ -1847,7 +1847,7 @@ private final class GiftAuctionBidScreenComponent: Component {
                 self?.share()
             })))
 
-            let contextController = makeContextController(presentationData: presentationData, source: .reference(GiftViewContextReferenceContentSource(controller: controller, sourceView: view)), items: .single(ContextController.Items(content: .list(items))), gesture: gesture)
+            let contextController = makeContextController(presentationData: presentationData, source: .reference(GiftViewContextReferenceContentSource(controller: controller, sourceView: (view as? GlassBarButtonComponent.View)?.menuSourceView ?? view)), items: .single(ContextController.Items(content: .list(items))), gesture: gesture)
             controller.presentInGlobalOverlay(contextController)
         }
         
@@ -2755,7 +2755,7 @@ private final class GiftAuctionBidScreenComponent: Component {
                             color: environment.theme.chat.inputPanel.panelControlColor,
                             size: CGSize(width: 34.0, height: 34.0),
                             playOnce: self.moreButtonPlayOnce,
-                            lottieSettings: component.context.lottieRenderingSettings
+                            lottieSettings: .noAccountFallback
                         )
                     )),
                     action: { [weak self] view in

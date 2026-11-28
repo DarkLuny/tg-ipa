@@ -3,6 +3,24 @@ import Postbox
 
 public let anonymousSavedMessagesId: Int64 = 2666000
 
+public extension RestrictionRule {
+    // The server may join several platforms with a dash ("ios-android").
+    func appliesTo(platform: String, contentSettings: ContentSettings) -> Bool {
+        return self.platform.split(separator: "-").contains(where: { component in
+            let component = String(component)
+            return component == "all" || component == platform || contentSettings.addContentRestrictionReasons.contains(component)
+        })
+    }
+}
+
+extension Array where Element == RestrictionRule {
+    func containsSensitiveRule(platform: String, contentSettings: ContentSettings) -> Bool {
+        return self.contains(where: { rule in
+            return rule.reason == "sensitive" && rule.appliesTo(platform: platform, contentSettings: contentSettings)
+        })
+    }
+}
+
 public extension Peer {
     var debugDisplayTitle: String {
         switch self {
@@ -277,6 +295,23 @@ public extension Peer {
             if rule.platform == "all" || rule.platform == platform {
                 return true
             }
+        }
+        return false
+    }
+
+    func hasSensitiveContent(platform: String, contentSettings: ContentSettings) -> Bool {
+        var restrictionInfo: PeerAccessRestrictionInfo?
+        switch self {
+        case let user as TelegramUser:
+            restrictionInfo = user.restrictionInfo
+        case let channel as TelegramChannel:
+            restrictionInfo = channel.restrictionInfo
+        default:
+            break
+        }
+        
+        if let restrictionInfo {
+            return restrictionInfo.rules.containsSensitiveRule(platform: platform, contentSettings: contentSettings)
         }
         return false
     }

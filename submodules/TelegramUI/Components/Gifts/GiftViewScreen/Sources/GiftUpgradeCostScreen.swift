@@ -1,5 +1,4 @@
 import Foundation
-import LottieSettings
 import UIKit
 import SwiftSignalKit
 import Display
@@ -15,6 +14,7 @@ import BalancedTextComponent
 import ButtonComponent
 import PresentationDataUtils
 import LottieComponent
+import LottieSettings
 import ProfileLevelRatingBarComponent
 import TextFormat
 import TelegramStringFormatting
@@ -188,9 +188,9 @@ private final class GiftUpgradeCostScreenComponent: Component {
                 if price.date < currentTime {
                     continue
                 }
-                let valueString = "⭐️\(presentationStringsFormattedNumber(abs(Int32(clamping: price.stars)), environment.dateTimeFormat.groupingSeparator))"
+                let valueString = "в­ђпёЏ\(presentationStringsFormattedNumber(abs(Int32(clamping: price.stars)), environment.dateTimeFormat.groupingSeparator))"
                 let valueAttributedString = NSMutableAttributedString(string: valueString, font: Font.regular(15.0), textColor: environment.theme.list.itemPrimaryTextColor)
-                let range = (valueAttributedString.string as NSString).range(of: "⭐️")
+                let range = (valueAttributedString.string as NSString).range(of: "в­ђпёЏ")
                 if range.location != NSNotFound {
                     valueAttributedString.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: 0, file: nil, custom: .stars(tinted: false)), range: range)
                     valueAttributedString.addAttribute(.baselineOffset, value: 1.0, range: range)
@@ -329,7 +329,7 @@ private final class SheetContainerComponent: CombinedComponent {
                 startingPosition: .begin,
                 size: CGSize(width: 28.0, height: 28.0),
                 playOnce: playButtonAnimation,
-                lottieSettings: component.context.lottieRenderingSettings
+                lottieSettings: .noAccountFallback
             ))))
             buttonTitle.append(AnyComponentWithIdentity(id: 1, component: AnyComponent(ButtonTextContentComponent(
                 text: environment.strings.Gift_UpgradeCost_Done,
