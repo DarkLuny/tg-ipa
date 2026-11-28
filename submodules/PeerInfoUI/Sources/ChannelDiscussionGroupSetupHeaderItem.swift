@@ -114,11 +114,11 @@ class ChannelDiscussionGroupSetupHeaderItemNode: ListViewItemNode {
                 switch item.theme.name {
                     case let .builtin(name):
                         switch name {
-                            case .day, .dayClassic, .neutral:
+                            case .day, .dayClassic:
                                 iconImage = UIImage(bundleImageName: "Chat/Info/DiscussDayIcon")?.precomposed()
                             case .nightAccent:
                                 iconImage = UIImage(bundleImageName: "Chat/Info/DiscussNightAccentIcon")?.precomposed()
-                            case .night, .neutralNight:
+                            case .night:
                                 iconImage = UIImage(bundleImageName: "Chat/Info/DiscussNightIcon")?.precomposed()
                         }
                     case .custom:
