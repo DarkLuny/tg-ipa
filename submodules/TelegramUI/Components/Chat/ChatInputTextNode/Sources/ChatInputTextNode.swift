@@ -311,8 +311,8 @@ private final class ChatInputTextContainer: NSTextContainer {
         return false
     }
     
-    init(size: CGSize) {
-        super.init(size: size, lottieSettings: .noAccountFallback)
+    override init(size: CGSize) {
+        super.init(size: size)
     }
     
     required init(coder: NSCoder) {
@@ -1027,7 +1027,7 @@ public final class ChatInputTextView: ChatInputTextViewImpl, UITextViewDelegate,
                 let preserveSelectedRange = selectedRange.location != self.textStorage.length
                 
                 // UTF-16 code units, which is what the in-place write below walks. Swift's `==`
-                // compares canonical equivalence, so precomposed "Г©" equalled "e" + U+0301 and the
+                // compares canonical equivalence, so precomposed "é" equalled "e" + U+0301 and the
                 // attribute walk ran past (or short of) the storage (`HarnessLegacyNormalizationSetTests`).
                 let sameCharacters = (self.textStorage.string as NSString).isEqual(to: value?.string ?? "")
                 if self.appliesTextInPlace || sameCharacters {
@@ -1038,7 +1038,7 @@ public final class ChatInputTextView: ChatInputTextViewImpl, UITextViewDelegate,
                     // alone. The second half is what keeps the history across the host's echoes: the
                     // chat pushes its input state back on every selection change, the node decorates
                     // the storage after each set (`refreshDecorationFromStoredConfig`), so the next
-                    // echo's freshly built string differs in attributes alone вЂ” and it used to be a full
+                    // echo's freshly built string differs in attributes alone — and it used to be a full
                     // set that wiped every step, a Quote/Code command's included, on the first caret
                     // move after it (composer harness, 2026-09-23,
                     // `HarnessLegacyBlockFormatUndoAfterTypingTests`).
@@ -1077,9 +1077,9 @@ public final class ChatInputTextView: ChatInputTextViewImpl, UITextViewDelegate,
     /// While set, `attributedText` writes go through the text storage in place (see the setter).
     private var appliesTextInPlace: Bool = false
     
-    /// Runs `body` вЂ” a programmatic change of this view's text, typically a host command whose new
+    /// Runs `body` — a programmatic change of this view's text, typically a host command whose new
     /// state comes back through `attributedText` (a Format command, pushed back by the chat's
-    /// `updateInputTextState`) вЂ” as ONE step on the view's own undo manager, keeping the steps
+    /// `updateInputTextState`) — as ONE step on the view's own undo manager, keeping the steps
     /// already on it. Undo restores the text and selection from before `body`, redo the ones after;
     /// each restore is reported as a user edit (`textViewDidChange`) so the host re-reads the state,
     /// and the host's echo of it is applied in place too. A `body` that changes nothing registers
