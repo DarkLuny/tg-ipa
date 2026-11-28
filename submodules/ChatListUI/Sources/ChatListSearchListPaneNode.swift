@@ -19,6 +19,7 @@ import TelegramBaseController
 import OverlayStatusController
 import ListMessageItem
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import ChatListSearchItemHeader
 import PhoneNumberFormat
@@ -1878,7 +1879,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
         self.emptyResultsTextNode.lineSpacing = 0.2
         self.emptyResultsTextNode.isHidden = true
 
-        self.emptyResultsAnimationNode = DefaultAnimatedStickerNodeImpl()
+        self.emptyResultsAnimationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         self.emptyResultsAnimationNode.isHidden = true
 
         if key == .channels || key == .apps {
@@ -1901,7 +1902,7 @@ final class ChatListSearchListPaneNode: ASDisplayNode, ChatListSearchPaneNode {
             }
             self.emptyRecentTextNode = emptyRecentTextNode
 
-            let emptyRecentAnimationNode = DefaultAnimatedStickerNodeImpl()
+            let emptyRecentAnimationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
             emptyRecentAnimationNode.isHidden = true
             self.emptyRecentAnimationNode = emptyRecentAnimationNode
 

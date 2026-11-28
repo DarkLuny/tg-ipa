@@ -22,6 +22,7 @@ import OverlayStatusController
 import UniversalMediaPlayer
 import PresentationDataUtils
 import AnimatedStickerNode
+import LottieSettings
 import AppBundle
 import GalleryData
 import InstantPageUI
@@ -1840,7 +1841,7 @@ final class ActionSheetAnimationAndTextItemNode: ActionSheetItemNode {
         self.theme = theme
         self.defaultFont = Font.regular(floor(theme.baseFontSize * 13.0 / 17.0))
         
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         self.animationNode.setup(source: AnimatedStickerNodeLocalFileSource(name: "ClearDownloadList"), width: 256, height: 256, playbackMode: .loop, mode: .direct(cachePathPrefix: nil))
         self.animationNode.visibility = true
         

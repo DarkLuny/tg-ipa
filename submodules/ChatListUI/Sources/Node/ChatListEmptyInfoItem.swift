@@ -7,6 +7,7 @@ import TelegramPresentationData
 import ListSectionHeaderNode
 import AppBundle
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 
 class ChatListEmptyInfoItem: ListViewItem {
@@ -93,7 +94,7 @@ class ChatListEmptyInfoItemNode: ListViewItemNode {
     }
     
     init() {
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         self.textNode = TextNode()
         
         super.init(layerBacked: false)

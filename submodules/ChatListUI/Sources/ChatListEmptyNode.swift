@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import Display
 import TelegramPresentationData
 import AnimatedStickerNode
+import LottieSettings
 import TelegramAnimatedStickerNode
 import AppBundle
 import ActivityIndicator
@@ -66,7 +67,7 @@ final class ChatListEmptyNode: ASDisplayNode {
         self.subject = subject
         self.isLoading = isLoading
         
-        self.animationNode = DefaultAnimatedStickerNodeImpl()
+        self.animationNode = DefaultAnimatedStickerNodeImpl(lottieSettings: .noAccountFallback)
         
         self.textNode = ImmediateTextNode()
         self.textNode.displaysAsynchronously = false

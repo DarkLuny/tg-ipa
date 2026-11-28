@@ -12,6 +12,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
         "//submodules/AsyncDisplayKit:AsyncDisplayKit",
         "//submodules/Display:Display",
@@ -150,6 +151,7 @@ swift_library(
     testonly = True,
     srcs = glob(["Tests/**/*.swift"]),
     deps = [
+        "//submodules/LottieSettings:LottieSettings",
         ":ChatListUI",
         "//submodules/Display:Display",
         "//submodules/TelegramCore:TelegramCore",
