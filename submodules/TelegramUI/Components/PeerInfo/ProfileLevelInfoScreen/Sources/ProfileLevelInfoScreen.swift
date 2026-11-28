@@ -656,8 +656,7 @@ public final class ProfileLevelInfoScreen: ViewControllerComponentContainer {
         peer: EnginePeer,
         starRating: TelegramStarRating,
         pendingStarRating: TelegramStarPendingRating?,
-        customTheme: PresentationTheme?,
-        accessibilityLabel: String? = nil
+        customTheme: PresentationTheme?
     ) {
         self.context = context
         
