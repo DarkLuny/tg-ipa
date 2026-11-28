@@ -583,7 +583,7 @@ private final class PluginContextRegistry: @unchecked Sendable {
         let _ = (sharedContext.activeAccountContexts
         |> deliverOnMainQueue).start(next: { [weak self] value in
             guard let self else { return }
-            let (primary, accounts) = value
+            let (primary, accounts, _) = value
             self.lock.lock()
             self.primary = primary
             self.byId = Dictionary(uniqueKeysWithValues: accounts.map { pair in

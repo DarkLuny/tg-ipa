@@ -18,7 +18,7 @@ import BrowserUI
 /// landed in the composer as a text link (`textUrl`) instead of as plain text the server auto-detects.
 /// A genuine text link — `[label](url)`, a label that differs from its target — is untouched and still
 /// classifies as rich.
-func chatInputContentFromPastedMarkdown(context: AccountContext, plainText: String) -> ChatInputContent? {
+func chatInputContentFromPastedMarkdown(context: AccountContext, plainText: String, keepsBlankLines: Bool = false) -> ChatInputContent? {
     guard let attribute = inputRichTextAttributeFromText(context: context, text: plainText) else {
         return nil
     }

@@ -1,4 +1,5 @@
 import Foundation
+import ChatMediaEditorScreen
 import UIKit
 import AsyncDisplayKit
 import TelegramCore

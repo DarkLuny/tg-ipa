@@ -1306,7 +1306,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             }
         }
         self.sharedContextPromise.set(sharedContextSignal
-        |> mapToSignal { sharedApplicationContext, loggingSettings -> Signal<SharedApplicationContext, NoError> in
+        |> mapToSignal { pair -> Signal<SharedApplicationContext, NoError> in
+            let (sharedApplicationContext, loggingSettings) = pair
             Logger.shared.logToFile = loggingSettings.logToFile
             Logger.shared.logToConsole = loggingSettings.logToConsole
             Logger.shared.redactSensitiveData = loggingSettings.redactSensitiveData

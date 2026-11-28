@@ -5027,6 +5027,13 @@ public class Postbox {
         }
     }
 
+    /// The peer ids of the account's contacts, read synchronously from the local table.
+    public func getContactPeerIds() -> Set<PeerId> {
+        return self.impl.syncWith { impl in
+            return impl.contactsTable.get()
+        }
+    }
+
     public func searchContacts(query: String) -> Signal<([Peer], [PeerId: PeerPresence]), NoError> {
         return Signal { subscriber in
             let disposable = MetaDisposable()

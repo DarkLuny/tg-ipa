@@ -22,6 +22,13 @@ internal import TelegramApi
 public final class PluginHookPoints {
     public static let shared = PluginHookPoints()
 
+    /// The account whose network is calling a hook. Set by the app at launch.
+    public var currentAccountId: () -> Int64 = { 0 }
+
+    /// Whether a plugin would rewrite or drop an outgoing message. Checked before the
+    /// message text is handed to `sendMessage`, so a build with no plugins pays one check.
+    public var wantsSendMessage: (() -> Bool)?
+
     /// Called before an outgoing message is enqueued. `text` may be rewritten in
     /// place; returning `false` cancels the send.
     ///

@@ -959,12 +959,12 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
             messageActions: messageActions
         )
         
-        return (data, updatingMessageMedia, infoSummaryData, appConfig, isMessageRead, messageViewsPrivacyTips, availableReactions, translationSettings, loggingSettings, notificationSoundList, accountPeer)
+        return (data, updatingMessageMedia, infoSummaryData, appConfig, isMessageRead, messageViewsPrivacyTips, availableReactions, translationSettings, loggingSettings, notificationSoundList, accountPeer as EnginePeer?)
     }
     
     return dataSignal
     |> deliverOnMainQueue
-    |> map { [context] data, updatingMessageMedia, infoSummaryData, appConfig, isMessageRead, messageViewsPrivacyTips, availableReactions, translationSettings, loggingSettings, notificationSoundList, accountPeer -> ContextController.Items in
+    |> map { [context] (data: MessageContextMenuData, updatingMessageMedia: [EngineMessage.Id: ChatUpdatingMessageMedia], infoSummaryData: InfoSummaryData, appConfig: AppConfiguration, isMessageRead: Bool, messageViewsPrivacyTips: Int32, availableReactions: AvailableReactions?, translationSettings: TranslationSettings, loggingSettings: LoggingSettings, notificationSoundList: NotificationSoundList?, accountPeer: EnginePeer?) -> ContextController.Items in
         let isPremium = accountPeer?.isPremium ?? false
 
         var actions: [ContextMenuItem] = []

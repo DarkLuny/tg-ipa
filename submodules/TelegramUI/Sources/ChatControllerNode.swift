@@ -995,7 +995,11 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
         } else if let peerId = self.chatPresentationInterfaceState.chatLocation.peerId, peerId.namespace != Namespaces.Peer.SecretChat {
             self.textInputPanelNode?.isAIEnabled = true
         }
-        self.textInputPanelNode?.textInputAccessoryPanel = textInputAccessoryPanel
+        self.textInputPanelNode?.textInputAccessoryPanel = { context, chatPresentationInterfaceState, chatControllerInteraction, interfaceInteraction in
+            return textInputAccessoryPanel(context: context, chatPresentationInterfaceState: chatPresentationInterfaceState, chatControllerInteraction: chatControllerInteraction, interfaceInteraction: interfaceInteraction).map { panel in
+                return [ChatTextInputAccessoryPanelCandidate(key: panel.id, panel: panel)]
+            }
+        }
         self.textInputPanelNode?.textInputContextPanel = textInputContextPanel
         self.textInputPanelNode?.storedInputLanguage = chatPresentationInterfaceState.interfaceState.inputLanguage
         self.textInputPanelNode?.updateHeight = { [weak self] animated in
